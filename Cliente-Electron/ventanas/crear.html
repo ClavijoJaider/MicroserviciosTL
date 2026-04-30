@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Crear Cuenta</title>
+  <style>
+    body { font-family: Arial; background: #F4F6FA; padding: 20px; }
+    h2 { color: #1F4E79; margin-bottom: 15px; }
+    label { display: block; margin: 8px 0 3px; font-weight: bold; font-size: 13px; }
+    input { width: 100%; padding: 7px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 3px; }
+    .botones { margin-top: 15px; display: flex; gap: 8px; }
+    button { background: #1F4E79; color: white; padding: 9px 20px; border: none; cursor: pointer; border-radius: 3px; }
+    button:hover { background: #2E6BAA; }
+    button.sec { background: #666; }
+    .ok { color: #1B8A5A; margin-top: 10px; font-weight: bold; }
+    .error { color: #C9102F; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h2>Crear Cuenta de Ahorros</h2>
+
+  <label>Número de cuenta:</label>
+  <input type="number" id="numero" placeholder="Ej: 2001" min="0">
+
+  <label>Titular:</label>
+  <input type="text" id="titular" placeholder="Nombre completo del titular">
+
+  <label>Saldo inicial (mínimo $200.000):</label>
+  <input type="number" id="saldo" placeholder="Ej: 500000" min="200000">
+
+  <label>Tasa de interés (decimal, ej: 0.045):</label>
+  <input type="number" id="tasa" placeholder="Ej: 0.045" step="0.001" min="0">
+
+  <div class="botones">
+    <button onclick="crear()">Crear</button>
+    <button class="sec" onclick="limpiar()">Limpiar</button>
+  </div>
+  <p id="resultado"></p>
+
+  <script>
+    function fechaLocal() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+    }
+
+    async function crear() {
+      const res = document.getElementById('resultado');
+      res.className = '';
+      res.textContent = '';
+
+      const numero = parseInt(document.getElementById('numero').value);
+      const titular = document.getElementById('titular').value.trim();
+      const saldo = parseFloat(document.getElementById('saldo').value);
+      const tasa = parseFloat(document.getElementById('tasa').value);
+
+      if (isNaN(numero) || numero < 0) { res.className='error'; res.textContent='✗ Número de cuenta inválido'; return; }
+      if (!titular) { res.className='error'; res.textContent='✗ El titular es requerido'; return; }
+      if (isNaN(saldo) || saldo < 200000) { res.className='error'; res.textContent='✗ El saldo mínimo es $200.000'; return; }
+      if (isNaN(tasa) || tasa < 0) { res.className='error'; res.textContent='✗ La tasa de interés es inválida'; return; }
+
+      const cuenta = { numeroCuenta: numero, titular, saldo, tasaInteres: tasa, fechaApertura: fechaLocal(), estado: 'Activo' };
+
+      try {
+        const r = await window.api.crearCuenta(cuenta);
+        if (r.success) {
+          res.className = 'ok';
+          res.textContent = '✓ Cuenta ' + numero + ' creada correctamente';
+          limpiar();
+        } else {
+          res.className = 'error';
+          res.textContent = '✗ ' + (r.error || 'Error al crear');
+        }
+      } catch (e) {
+        res.className = 'error';
+        res.textContent = '✗ Error: ' + e.message;
+      }
+    }
+
+    function limpiar() {
+      document.getElementById('numero').value = '';
+      document.getElementById('titular').value = '';
+      document.getElementById('saldo').value = '';
+      document.getElementById('tasa').value = '';
+    }
+
+    // Observer: escucha confirmación del servidor
+    window.api.onActualizacion((evt) => {
+      console.log('[Observer] Evento del servidor:', evt.evento);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Eliminar Cuenta</title>
+  <style>
+    body { font-family: Arial; background: #F4F6FA; padding: 20px; }
+    h2 { color: #C9102F; margin-bottom: 15px; }
+    label { display: block; margin: 8px 0 3px; font-weight: bold; font-size: 13px; }
+    input { width: 100%; padding: 7px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 3px; }
+    input:read-only { background: #f0f0f0; color: #666; }
+    .fila { display: flex; gap: 8px; }
+    button { background: #1F4E79; color: white; padding: 9px 20px; border: none; cursor: pointer; border-radius: 3px; }
+    button:hover { background: #2E6BAA; }
+    button.del { background: #C9102F; }
+    button.del:hover { background: #a50d26; }
+    button.sec { background: #666; }
+    #info { display: none; background: #FFF3CD; border: 1px solid #FFCA28; border-radius: 5px; padding: 12px; margin-top: 12px; font-size: 13px; }
+    #info .fila-dato { display: flex; padding: 3px 0; }
+    #info .etiqueta { font-weight: bold; width: 130px; }
+    .advertencia { color: #856404; margin-top: 8px; font-size: 12px; }
+    .ok { color: #1B8A5A; margin-top: 10px; font-weight: bold; }
+    .error { color: #C9102F; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h2>Eliminar Cuenta de Ahorros</h2>
+
+  <label>Número de cuenta a buscar:</label>
+  <div class="fila">
+    <input type="number" id="buscar" placeholder="Ingrese el número de cuenta">
+    <button onclick="buscar()" style="white-space:nowrap">Buscar</button>
+  </div>
+  <p id="errBuscar" class="error"></p>
+
+  <div id="info">
+    <strong>Información de la cuenta a eliminar:</strong>
+    <div class="fila-dato"><span class="etiqueta">N° Cuenta:</span><span id="rNumero"></span></div>
+    <div class="fila-dato"><span class="etiqueta">Titular:</span><span id="rTitular"></span></div>
+    <div class="fila-dato"><span class="etiqueta">Saldo:</span><span id="rSaldo"></span></div>
+    <div class="fila-dato"><span class="etiqueta">Tasa interés:</span><span id="rTasa"></span></div>
+    <div class="fila-dato"><span class="etiqueta">Estado:</span><span id="rEstado"></span></div>
+    <div class="fila-dato"><span class="etiqueta">Apertura:</span><span id="rFecha"></span></div>
+    <p class="advertencia">⚠ La eliminación es lógica: la cuenta quedará como Inactiva y no podrá operar.</p>
+    <div class="fila" style="margin-top:10px">
+      <button class="del" id="btnEliminar" onclick="eliminar()">Eliminar cuenta</button>
+      <button class="sec" onclick="cancelar()">Cancelar</button>
+    </div>
+  </div>
+
+  <p id="resultado"></p>
+
+  <script>
+    let cuentaActual = null;
+
+    async function buscar() {
+      const n = parseInt(document.getElementById('buscar').value);
+      const err = document.getElementById('errBuscar');
+      err.textContent = '';
+      document.getElementById('info').style.display = 'none';
+      document.getElementById('resultado').textContent = '';
+
+      if (isNaN(n)) { err.textContent = '✗ Ingrese un número válido'; return; }
+
+      try {
+        const r = await window.api.buscarCuenta(n);
+        if (r.success && r.data) {
+          if (r.data.estado === 'Inactivo') {
+            err.textContent = '✗ La cuenta ya está inactiva y no puede eliminarse nuevamente';
+            return;
+          }
+          cuentaActual = r.data;
+          document.getElementById('rNumero').textContent = r.data.numeroCuenta;
+          document.getElementById('rTitular').textContent = r.data.titular;
+          document.getElementById('rSaldo').textContent = '$' + Number(r.data.saldo).toLocaleString('es-CO');
+          document.getElementById('rTasa').textContent = r.data.tasaInteres ? (r.data.tasaInteres * 100).toFixed(2) + '%' : '-';
+          document.getElementById('rEstado').textContent = r.data.estado;
+          document.getElementById('rFecha').textContent = r.data.fechaApertura ? r.data.fechaApertura.substring(0, 10) : '-';
+          document.getElementById('info').style.display = 'block';
+        } else {
+          err.textContent = '✗ ' + (r.error || 'Cuenta no encontrada');
+        }
+      } catch(e) { err.textContent = '✗ Error: ' + e.message; }
+    }
+
+    async function eliminar() {
+      if (!cuentaActual) return;
+      if (!confirm('¿Confirma que desea eliminar la cuenta ' + cuentaActual.numeroCuenta + ' de ' + cuentaActual.titular + '?')) return;
+
+      const res = document.getElementById('resultado');
+      try {
+        const r = await window.api.eliminarCuenta(cuentaActual.numeroCuenta);
+        if (r.success) {
+          res.className = 'ok';
+          res.textContent = '✓ Cuenta ' + cuentaActual.numeroCuenta + ' eliminada correctamente';
+          document.getElementById('info').style.display = 'none';
+          document.getElementById('buscar').value = '';
+          cuentaActual = null;
+        } else {
+          res.className = 'error';
+          res.textContent = '✗ ' + (r.error || 'Error al eliminar');
+        }
+      } catch(e) { res.className='error'; res.textContent='✗ Error: ' + e.message; }
+    }
+
+    function cancelar() {
+      cuentaActual = null;
+      document.getElementById('buscar').value = '';
+      document.getElementById('info').style.display = 'none';
+      document.getElementById('errBuscar').textContent = '';
+      document.getElementById('resultado').textContent = '';
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>4.0.4</version>
+		<relativePath/>
+	</parent>
+	<groupId>com.jacs</groupId>
+	<artifactId>proyectoMicroservicios</artifactId>
+	<version>1.0.0</version>
+	<name>proyectoMicroservicios</name>
+	<description>Segundo Taller - Microservicios REST Cuentas de Ahorros</description>
+
+	<properties>
+		<java.version>25</java.version>
+                <start-class>com.jacs.proyectomicroservicios.ProyectoMicroserviciosApplication</start-class>
+	</properties>
+
+	<dependencies>
+		<!-- Spring MVC + Tomcat embebido + SSE + JSON -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+
+		<!-- Spring Data JPA (Hibernate) -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-jpa</artifactId>
+		</dependency>
+
+		<!--
+			CORRECCIÓN CRÍTICA DEL ERROR DE ARRANQUE:
+			"package com.fasterxml.jackson.databind does not exist"
+
+			Causa: spring-boot-starter-data-jpa en Spring Boot 4.x no incluye
+			jackson-databind de forma transitiva. Se declara de forma explícita
+			para garantizar que esté en el classpath de compilación y ejecución.
+		-->
+		<dependency>
+			<groupId>com.fasterxml.jackson.core</groupId>
+			<artifactId>jackson-databind</artifactId>
+		</dependency>
+		<!-- Soporte de LocalDateTime / LocalDate en serialización JSON -->
+		<dependency>
+			<groupId>com.fasterxml.jackson.datatype</groupId>
+			<artifactId>jackson-datatype-jsr310</artifactId>
+		</dependency>
+
+		<!--
+			H2 — Base de datos embebida para desarrollo/pruebas.
+			No requiere instalar nada. Se activa automáticamente cuando
+			Oracle no está configurado (perfil por defecto).
+			Para usar Oracle: activa el perfil 'oracle' en application.properties
+			o pasa --spring.profiles.active=oracle al ejecutar.
+		-->
+		<dependency>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+
+		<!-- Driver Oracle JDBC — Activo solo cuando Oracle está disponible -->
+		<dependency>
+			<groupId>com.oracle.database.jdbc</groupId>
+			<artifactId>ojdbc11</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>org.projectlombok</groupId>
+			<artifactId>lombok</artifactId>
+			<optional>true</optional>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<configuration>
+					<annotationProcessorPaths>
+						<path>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+						</path>
+					</annotationProcessorPaths>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+				<configuration>
+					<excludes>
+						<exclude>
+							<groupId>org.projectlombok</groupId>
+							<artifactId>lombok</artifactId>
+						</exclude>
+					</excludes>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+
+</project>

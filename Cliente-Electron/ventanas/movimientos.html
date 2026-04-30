@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Agregar Movimiento</title>
+  <style>
+    body { font-family: Arial; background: #F4F6FA; padding: 20px; }
+    h2 { color: #1B8A5A; margin-bottom: 15px; }
+    label { display: block; margin: 8px 0 3px; font-weight: bold; font-size: 13px; }
+    input, select { width: 100%; padding: 7px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 3px; }
+    .fila { display: flex; gap: 8px; }
+    button { background: #1B8A5A; color: white; padding: 9px 20px; border: none; cursor: pointer; border-radius: 3px; }
+    button:hover { background: #2AA373; }
+    button.sec { background: #666; }
+    #cuentaInfo { display: none; background: #E8F5E9; border: 1px solid #A5D6A7; border-radius: 5px; padding: 10px; margin: 10px 0; font-size: 13px; }
+    #formMov { display: none; }
+    .ok { color: #1B8A5A; margin-top: 10px; font-weight: bold; }
+    .error { color: #C9102F; margin-top: 8px; }
+    #historial { margin-top: 15px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { padding: 5px 8px; border-bottom: 1px solid #ddd; text-align: left; }
+    th { background: #1B8A5A; color: white; }
+  </style>
+</head>
+<body>
+  <h2>Agregar Movimiento</h2>
+
+  <label>Número de cuenta:</label>
+  <div class="fila">
+    <input type="number" id="numero" placeholder="Número de cuenta">
+    <button onclick="buscarCuenta()" style="white-space:nowrap">Buscar</button>
+  </div>
+  <p id="errBuscar" class="error"></p>
+
+  <div id="cuentaInfo">
+    <strong id="infoNombre"></strong><br>
+    Saldo actual: <strong id="infoSaldo"></strong>
+  </div>
+
+  <div id="formMov">
+    <label>Tipo de movimiento:</label>
+    <select id="tipo">
+      <option value="CREDITO">Depósito (Crédito)</option>
+      <option value="DEBITO">Retiro (Débito)</option>
+    </select>
+
+    <label>Monto:</label>
+    <input type="number" id="monto" placeholder="Ingrese el monto" min="1">
+
+    <div class="fila" style="margin-top:10px">
+      <button onclick="agregar()">Registrar movimiento</button>
+      <button class="sec" onclick="limpiar()">Limpiar</button>
+    </div>
+    <p id="resultado"></p>
+  </div>
+
+  <div id="historial" style="display:none">
+    <strong>Movimientos de la cuenta:</strong>
+    <table style="margin-top:6px">
+      <thead><tr><th>ID</th><th>Fecha</th><th>Monto</th><th>Tipo</th></tr></thead>
+      <tbody id="tablaMovimientos"></tbody>
+    </table>
+  </div>
+
+  <script>
+    let cuentaActual = null;
+
+    async function buscarCuenta() {
+      const n = parseInt(document.getElementById('numero').value);
+      const err = document.getElementById('errBuscar');
+      err.textContent = '';
+      document.getElementById('cuentaInfo').style.display = 'none';
+      document.getElementById('formMov').style.display = 'none';
+      document.getElementById('historial').style.display = 'none';
+
+      if (isNaN(n)) { err.textContent = '✗ Ingrese un número válido'; return; }
+
+      try {
+        const r = await window.api.buscarCuenta(n);
+        if (r.success && r.data) {
+          cuentaActual = r.data;
+          document.getElementById('infoNombre').textContent = r.data.titular + ' — Cuenta N° ' + r.data.numeroCuenta;
+          document.getElementById('infoSaldo').textContent = '$' + Number(r.data.saldo).toLocaleString('es-CO');
+          document.getElementById('cuentaInfo').style.display = 'block';
+          document.getElementById('formMov').style.display = 'block';
+          cargarMovimientos(n);
+        } else {
+          err.textContent = '✗ ' + (r.error || 'Cuenta no encontrada');
+        }
+      } catch(e) { err.textContent = '✗ Error: ' + e.message; }
+    }
+
+    async function cargarMovimientos(numero) {
+      try {
+        const r = await window.api.listarMovimientos(numero);
+        const tbody = document.getElementById('tablaMovimientos');
+        const data = r.data || [];
+        if (data.length > 0) {
+          tbody.innerHTML = data.map(m =>
+            `<tr><td>${m.id}</td><td>${new Date(m.fechaMovimiento).toLocaleString('es-CO')}</td><td>$${Number(m.monto).toLocaleString('es-CO')}</td><td>${m.tipo}</td></tr>`
+          ).join('');
+          document.getElementById('historial').style.display = 'block';
+        }
+      } catch(e) {}
+    }
+
+    async function agregar() {
+      if (!cuentaActual) return;
+      const monto = parseFloat(document.getElementById('monto').value);
+      const tipo = document.getElementById('tipo').value;
+      const res = document.getElementById('resultado');
+      res.textContent = '';
+
+      if (isNaN(monto) || monto <= 0) { res.className='error'; res.textContent='✗ El monto debe ser mayor a cero'; return; }
+
+      try {
+        const r = await window.api.agregarMovimiento(cuentaActual.numeroCuenta, monto, tipo);
+        if (r.success) {
+          res.className = 'ok';
+          res.textContent = '✓ Movimiento registrado correctamente';
+          document.getElementById('monto').value = '';
+          // Refrescar saldo y movimientos
+          await buscarCuenta();
+        } else {
+          res.className = 'error';
+          res.textContent = '✗ ' + (r.error || 'Error al registrar');
+        }
+      } catch(e) { res.className='error'; res.textContent='✗ Error: ' + e.message; }
+    }
+
+    function limpiar() {
+      cuentaActual = null;
+      document.getElementById('numero').value = '';
+      document.getElementById('monto').value = '';
+      document.getElementById('cuentaInfo').style.display = 'none';
+      document.getElementById('formMov').style.display = 'none';
+      document.getElementById('historial').style.display = 'none';
+      document.getElementById('errBuscar').textContent = '';
+      document.getElementById('resultado').textContent = '';
+    }
+
+    // Observer: actualiza el saldo si el servidor notifica un movimiento en esta cuenta
+    window.api.onActualizacion((evt) => {
+      if (cuentaActual && evt.evento === 'MOVIMIENTO_AGREGADO' && evt.datos && evt.datos.numeroCuenta === cuentaActual.numeroCuenta) {
+        buscarCuenta();
+      }
+    });
+  </script>
+</body>
+</html>

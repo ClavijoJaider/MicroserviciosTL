@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Actualizar Cuenta</title>
+  <style>
+    body { font-family: Arial; background: #F4F6FA; padding: 20px; }
+    h2 { color: #1F4E79; margin-bottom: 15px; }
+    label { display: block; margin: 8px 0 3px; font-weight: bold; font-size: 13px; }
+    input { width: 100%; padding: 7px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 3px; }
+    input:read-only { background: #f0f0f0; color: #666; }
+    .fila { display: flex; gap: 8px; }
+    button { background: #1F4E79; color: white; padding: 9px 20px; border: none; cursor: pointer; border-radius: 3px; }
+    button:hover { background: #2E6BAA; }
+    button.sec { background: #666; }
+    button:disabled { background: #aaa; cursor: not-allowed; }
+    #formulario { display: none; border-top: 2px solid #1F4E79; margin-top: 15px; padding-top: 15px; }
+    .ok { color: #1B8A5A; margin-top: 10px; font-weight: bold; }
+    .error { color: #C9102F; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h2>Actualizar Cuenta de Ahorros</h2>
+
+  <label>Número de cuenta a buscar:</label>
+  <div class="fila">
+    <input type="number" id="buscar" placeholder="Ingrese el número de cuenta">
+    <button onclick="buscar()" style="white-space:nowrap">Buscar</button>
+  </div>
+  <p id="errBuscar" class="error"></p>
+
+  <div id="formulario">
+    <label>N° Cuenta (no editable):</label>
+    <input type="text" id="numero" readonly>
+
+    <label>Titular:</label>
+    <input type="text" id="titular" placeholder="Nuevo nombre del titular">
+
+    <label>Saldo (mínimo $200.000):</label>
+    <input type="number" id="saldo" placeholder="Nuevo saldo" min="200000">
+
+    <label>Tasa de interés (decimal):</label>
+    <input type="number" id="tasa" placeholder="Ej: 0.045" step="0.001" min="0">
+
+    <label>Estado:</label>
+    <select id="estado" style="width:100%;padding:7px;border:1px solid #ccc;border-radius:3px;">
+      <option value="Activo">Activo</option>
+      <option value="Inactivo">Inactivo</option>
+    </select>
+
+    <div class="fila" style="margin-top:12px">
+      <button onclick="actualizar()">Actualizar</button>
+      <button class="sec" onclick="cancelar()">Cancelar</button>
+    </div>
+    <p id="resultado"></p>
+  </div>
+
+  <script>
+    let cuentaActual = null;
+
+    async function buscar() {
+      const n = parseInt(document.getElementById('buscar').value);
+      const err = document.getElementById('errBuscar');
+      err.textContent = '';
+      document.getElementById('formulario').style.display = 'none';
+
+      if (isNaN(n)) { err.textContent = '✗ Ingrese un número válido'; return; }
+
+      try {
+        const r = await window.api.buscarCuenta(n);
+        if (r.success && r.data) {
+          cuentaActual = r.data;
+          document.getElementById('numero').value = r.data.numeroCuenta;
+          document.getElementById('titular').value = r.data.titular;
+          document.getElementById('saldo').value = r.data.saldo;
+          document.getElementById('tasa').value = r.data.tasaInteres;
+          document.getElementById('estado').value = r.data.estado || 'Activo';
+          document.getElementById('resultado').textContent = '';
+          document.getElementById('formulario').style.display = 'block';
+        } else {
+          err.textContent = '✗ ' + (r.error || 'Cuenta no encontrada');
+        }
+      } catch(e) { err.textContent = '✗ Error: ' + e.message; }
+    }
+
+    async function actualizar() {
+      if (!cuentaActual) return;
+      const res = document.getElementById('resultado');
+      res.className = '';
+
+      const titular = document.getElementById('titular').value.trim();
+      const saldo = parseFloat(document.getElementById('saldo').value);
+      const tasa = parseFloat(document.getElementById('tasa').value);
+      const estado = document.getElementById('estado').value;
+
+      if (!titular) { res.className='error'; res.textContent='✗ El titular es requerido'; return; }
+      if (isNaN(saldo) || saldo < 200000) { res.className='error'; res.textContent='✗ El saldo mínimo es $200.000'; return; }
+      if (isNaN(tasa) || tasa < 0) { res.className='error'; res.textContent='✗ La tasa es inválida'; return; }
+
+      const datos = {
+        numeroCuenta: cuentaActual.numeroCuenta,
+        titular,
+        saldo,
+        tasaInteres: tasa,
+        estado,
+        fechaApertura: cuentaActual.fechaApertura
+      };
+
+      try {
+        const r = await window.api.actualizarCuenta(cuentaActual.numeroCuenta, datos);
+        if (r.success) {
+          res.className = 'ok';
+          res.textContent = '✓ Cuenta actualizada correctamente';
+          cuentaActual = r.data || datos;
+        } else {
+          res.className = 'error';
+          res.textContent = '✗ ' + (r.error || 'Error al actualizar');
+        }
+      } catch(e) { res.className='error'; res.textContent='✗ Error: ' + e.message; }
+    }
+
+    function cancelar() {
+      cuentaActual = null;
+      document.getElementById('buscar').value = '';
+      document.getElementById('formulario').style.display = 'none';
+      document.getElementById('errBuscar').textContent = '';
+    }
+
+    // Observer: refresca si la cuenta actual fue modificada por otro cliente
+    window.api.onActualizacion((evt) => {
+      if (cuentaActual && evt.datos && evt.datos.numeroCuenta === cuentaActual.numeroCuenta) {
+        buscar();
+      }
+    });
+  </script>
+</body>
+</html>

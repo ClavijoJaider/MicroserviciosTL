@@ -1,0 +1,6 @@
+.DS_Store
+Cliente-Electron/node_modules/
+bin/
+obj/
+.vs/
+Cliente-Electron/node_modules/electron/dist/electron.exe
