@@ -94,15 +94,24 @@
     }
 
     // ============== OBSERVER PATTERN ==============
-    // Recibe eventos SSE del servidor y actualiza la tabla automáticamente
+    // Recibe eventos SSE de AMBOS microservicios y actualiza la tabla automáticamente.
+    // MOVIMIENTO_CREADO      → MS-Movimiento (8081) — nuevo movimiento creado
+    // MOVIMIENTO_ACTUALIZADO → MS-Movimiento (8081) — movimiento editado
+    // MOVIMIENTO_ELIMINADO   → MS-Movimiento (8081) — movimiento eliminado
     window.api.onActualizacion((evt) => {
-      if (evt.evento === 'MOVIMIENTO_AGREGADO') {
+      const esCreado = evt.evento === 'MOVIMIENTO_CREADO' || evt.evento === 'MOVIMIENTO_AGREGADO';
+      const esModificado = evt.evento === 'MOVIMIENTO_ACTUALIZADO' || evt.evento === 'MOVIMIENTO_ELIMINADO';
+
+      if (esCreado) {
         mostrarNotif('Nuevo movimiento registrado en cuenta N° ' + (evt.datos && evt.datos.numeroCuenta));
         if (numeroCuentaActual === null) {
           cargarTodos();
         } else if (evt.datos && evt.datos.numeroCuenta === numeroCuentaActual) {
           cargar();
         }
+      } else if (esModificado) {
+        mostrarNotif('Movimiento actualizado — recargando...');
+        if (numeroCuentaActual === null) cargarTodos(); else cargar();
       }
     });
 

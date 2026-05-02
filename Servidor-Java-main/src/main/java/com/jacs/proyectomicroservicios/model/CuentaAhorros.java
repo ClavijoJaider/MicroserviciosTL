@@ -5,32 +5,29 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
- * Modelo de dominio y entidad JPA para la tabla CUENTA_AHORROS.
+ * Entidad JPA — tabla CUENTA_AHORROS (maestro).
+ *
+ * TERCER PROTOTIPO:
+ *   - La lista de movimientos fue eliminada: "el uso de una lista está prohibido".
+ *     Los movimientos se acceden exclusivamente a través de MovimientoRepository.
+ *   - La relación con Movimiento es unidireccional @ManyToOne desde el detalle;
+ *     aquí solo existe la tabla maestra sin colección embebida.
  *
  * LOMBOK:
- *   - @AllArgsConstructor ELIMINADO intencionalmente: conflicto con @Builder.Default.
- *     Cuando coexisten, Lombok incluye el campo sintético $default$movimientos
- *     en el constructor generado por @AllArgsConstructor, causando un error de
- *     compilación/arranque. Con solo @NoArgsConstructor + @Builder el problema
- *     desaparece porque Lombok usa su propio constructor interno de tipo package-private.
- *
- * JPA:
- *   - numeroCuenta es la clave primaria (asignada manualmente, no auto-generada).
- *   - movimientos está marcado @Transient: no se persiste en la columna; el servicio
- *     JPA la rellena manualmente llamando a MovimientoRepository.findByNumeroCuenta().
+ *   - @AllArgsConstructor restaurado (el conflicto con @Builder.Default desaparece
+ *     al eliminar la lista @Transient que lo causaba).
  */
 @Data
 @Builder
 @NoArgsConstructor
+@AllArgsConstructor
 @Entity
 @Table(name = "CUENTA_AHORROS")
 public class CuentaAhorros {
 
-    /** Número de cuenta — PK asignada por el cliente (no auto-incremento). */
+    /** PK asignada por el cliente (no auto-incremento). */
     @Id
     @Column(name = "NUMERO_CUENTA", nullable = false)
     private int numeroCuenta;
@@ -41,6 +38,7 @@ public class CuentaAhorros {
     @Column(name = "SALDO", nullable = false)
     private double saldo;
 
+    /** "Activo" o "Inactivo" (baja lógica). */
     @Column(name = "ESTADO", nullable = false, length = 20)
     private String estado;
 
@@ -51,18 +49,9 @@ public class CuentaAhorros {
     @Column(name = "TASA_INTERES")
     private double tasaInteres;
 
-    /**
-     * Lista de movimientos — NO se persiste en DB (@Transient).
-     * Los movimientos se guardan en la tabla MOVIMIENTO con FK NUMERO_CUENTA.
-     * El servicio JPA rellena esta lista a pedido usando MovimientoRepository.
-     */
-    @Transient
-    @Builder.Default
-    private List<Movimiento> movimientos = new ArrayList<>();
-
     // ---- Métodos de negocio ----
 
-    /** Costo mensual de mantenimiento (0.5% del saldo). */
+    /** Costo mensual de mantenimiento (0.5 % del saldo). */
     public double calcularCostoMensual() {
         return saldo * 0.005;
     }

@@ -13,10 +13,12 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Singleton gestionado por Spring (scope default = singleton).
- * Activo SOLO con el perfil "inmemory" — en producción usa CuentaAhorrosJpaService (@Primary).
- * La referencia estática permite acceso sin inyección cuando sea necesario,
- * y se asigna en @PostConstruct tras la creación del bean.
+ * Servicio en-memoria — activo SOLO con el perfil "inmemory".
+ *
+ * TERCER PROTOTIPO:
+ *   La lista de movimientos ya no está en el modelo CuentaAhorros; se gestiona
+ *   internamente en este servicio mediante un Map<numeroCuenta, List<Movimiento>>.
+ *   Esto garantiza que el modelo compile sin la List eliminada.
  */
 @Service
 @Profile("inmemory")
@@ -25,8 +27,8 @@ public class CuentaAhorrosService implements ICuentaAhorrosService {
     private static CuentaAhorrosService instance;
 
     private final SseService sseService;
-    private final List<CuentaAhorros> cuentas = new ArrayList<>();
-    private final List<Movimiento> movimientosGlobales = new ArrayList<>();
+    private final List<CuentaAhorros>            cuentas  = new ArrayList<>();
+    private final Map<Integer, List<Movimiento>> movimMap = new HashMap<>();
     private int nextMovimientoId = 1;
 
     public CuentaAhorrosService(SseService sseService) {
@@ -36,42 +38,37 @@ public class CuentaAhorrosService implements ICuentaAhorrosService {
     @PostConstruct
     private void initSingleton() {
         instance = this;
-        // Registrar SseService como observador concreto del Subject
         CuentaListSubject.attach(sseService);
     }
 
-    /** Acceso estático al singleton para código no-Spring (legacy). */
-    public static CuentaAhorrosService getInstance() {
-        return instance;
+    public static CuentaAhorrosService getInstance() { return instance; }
+
+    // ---- helpers internos ----
+
+    private List<Movimiento> movimientosDe(int numeroCuenta) {
+        return movimMap.computeIfAbsent(numeroCuenta, k -> new ArrayList<>());
     }
+
+    // ===================================================================
+    // CRUD Cuentas
+    // ===================================================================
 
     @Override
     public void agregar(CuentaAhorros cuenta) {
-        if (cuenta == null) {
+        if (cuenta == null)
             throw new IllegalArgumentException("La cuenta no puede ser nula");
-        }
-        if (cuenta.getTitular() == null || cuenta.getTitular().trim().isEmpty()) {
+        if (cuenta.getTitular() == null || cuenta.getTitular().isBlank())
             throw new IllegalArgumentException("El titular no puede estar vacío");
-        }
-        if (cuenta.getNumeroCuenta() < 0) {
-            throw new IllegalArgumentException("El número de cuenta no puede ser negativo");
-        }
-        if (cuenta.getSaldo() < 200000.0) {
+        if (cuenta.getNumeroCuenta() <= 0)
+            throw new IllegalArgumentException("El número de cuenta debe ser mayor a cero");
+        if (cuenta.getSaldo() < 200_000.0)
             throw new IllegalArgumentException("El saldo inicial mínimo es $200.000");
-        }
-        boolean existe = cuentas.stream()
-                .anyMatch(c -> c.getNumeroCuenta() == cuenta.getNumeroCuenta());
-        if (existe) {
+        if (cuentas.stream().anyMatch(c -> c.getNumeroCuenta() == cuenta.getNumeroCuenta()))
             throw new IllegalArgumentException("Ya existe una cuenta con el número: " + cuenta.getNumeroCuenta());
-        }
 
         cuenta.setEstado("Activo");
-        if (cuenta.getMovimientos() == null) {
-            cuenta.setMovimientos(new ArrayList<>());
-        }
         cuentas.add(cuenta);
 
-        // Notificar observers (SseService envía el evento a todos los clientes conectados)
         Map<String, Object> payload = new HashMap<>();
         payload.put("numeroCuenta", cuenta.getNumeroCuenta());
         payload.put("titular", cuenta.getTitular());
@@ -85,73 +82,6 @@ public class CuentaAhorrosService implements ICuentaAhorrosService {
                 .filter(c -> c.getNumeroCuenta() == numeroCuenta)
                 .findFirst()
                 .orElseThrow(() -> new NoSuchElementException("Cuenta no encontrada: " + numeroCuenta));
-    }
-
-    @Override
-    public Movimiento agregarMovimiento(int numeroCuenta, Movimiento datos) {
-        CuentaAhorros cuenta = buscarPorNumero(numeroCuenta);
-
-        if (datos.getMonto() <= 0) {
-            throw new IllegalArgumentException("El monto debe ser mayor a cero");
-        }
-        if (datos.getTipo() == null || datos.getTipo().trim().isEmpty()) {
-            throw new IllegalArgumentException("El tipo de movimiento es requerido");
-        }
-
-        String tipo = datos.getTipo().toUpperCase();
-        if (!"CREDITO".equals(tipo) && !"DEBITO".equals(tipo)) {
-            throw new IllegalArgumentException("Tipo de movimiento inválido: " + datos.getTipo() + ". Use CREDITO o DEBITO");
-        }
-
-        if ("DEBITO".equals(tipo) && cuenta.getSaldo() < datos.getMonto()) {
-            throw new IllegalArgumentException("Saldo insuficiente. Saldo actual: $" + cuenta.getSaldo());
-        }
-
-        Movimiento movimiento = Movimiento.builder()
-                .id(nextMovimientoId++)
-                .fechaMovimiento(LocalDateTime.now())
-                .monto(datos.getMonto())
-                .tipo(tipo)
-                .numeroCuenta(numeroCuenta)
-                .build();
-
-        cuenta.getMovimientos().add(movimiento);
-        movimientosGlobales.add(movimiento);
-
-        if ("CREDITO".equals(tipo)) {
-            cuenta.setSaldo(cuenta.getSaldo() + datos.getMonto());
-        } else {
-            cuenta.setSaldo(cuenta.getSaldo() - datos.getMonto());
-        }
-
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("numeroCuenta", numeroCuenta);
-        payload.put("tipo", tipo);
-        payload.put("monto", movimiento.getMonto());
-        sseService.notificar("MOVIMIENTO_AGREGADO", payload);
-
-        return movimiento;
-    }
-
-    @Override
-    public List<Movimiento> listarMovimientos(int numeroCuenta) {
-        CuentaAhorros cuenta = buscarPorNumero(numeroCuenta);
-        return cuenta.getMovimientos();
-    }
-
-    @Override
-    public List<Movimiento> listarTodosMovimientos() {
-        return movimientosGlobales.stream()
-                .sorted(Comparator.comparingInt(Movimiento::getId))
-                .collect(Collectors.toList());
-    }
-
-    @Override
-    public List<CuentaAhorros> buscarPorTitular(String titular) {
-        return cuentas.stream()
-                .filter(c -> c.getTitular().toLowerCase().contains(titular.toLowerCase()))
-                .sorted(Comparator.comparingInt(CuentaAhorros::getNumeroCuenta))
-                .collect(Collectors.toList());
     }
 
     @Override
@@ -173,53 +103,96 @@ public class CuentaAhorrosService implements ICuentaAhorrosService {
     }
 
     @Override
+    public List<CuentaAhorros> buscarPorTitular(String titular) {
+        return cuentas.stream()
+                .filter(c -> c.getTitular().toLowerCase().contains(titular.toLowerCase()))
+                .sorted(Comparator.comparingInt(CuentaAhorros::getNumeroCuenta))
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public boolean eliminar(int numeroCuenta) {
         CuentaAhorros cuenta = buscarPorNumero(numeroCuenta);
-        if ("Activo".equalsIgnoreCase(cuenta.getEstado())) {
-            cuenta.setEstado("Inactivo");
-            Map<String, Object> payload = new HashMap<>();
-            payload.put("numeroCuenta", numeroCuenta);
-            sseService.notificar("CUENTA_ELIMINADA", payload);
-            CuentaListSubject.notifyObservers(listar());
-            return true;
-        }
-        return false;
+        if (!"Activo".equalsIgnoreCase(cuenta.getEstado())) return false;
+        cuenta.setEstado("Inactivo");
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("numeroCuenta", numeroCuenta);
+        sseService.notificar("CUENTA_ELIMINADA", payload);
+        CuentaListSubject.notifyObservers(listar());
+        return true;
     }
 
     @Override
     public CuentaAhorros actualizar(int numeroCuenta, CuentaAhorros datos) {
         CuentaAhorros cuenta = buscarPorNumero(numeroCuenta);
-
-        if (datos.getTitular() != null && !datos.getTitular().trim().isEmpty()) {
+        if (datos.getTitular() != null && !datos.getTitular().isBlank())
             cuenta.setTitular(datos.getTitular());
-        }
-        if (datos.getSaldo() >= 200000.0) {
+        if (datos.getSaldo() >= 200_000.0)
             cuenta.setSaldo(datos.getSaldo());
-        }
-        if (datos.getTasaInteres() > 0) {
+        if (datos.getTasaInteres() > 0)
             cuenta.setTasaInteres(datos.getTasaInteres());
-        }
-        if (datos.getEstado() != null && !datos.getEstado().trim().isEmpty()) {
+        if (datos.getEstado() != null && !datos.getEstado().isBlank())
             cuenta.setEstado(datos.getEstado());
-        }
 
         Map<String, Object> payload = new HashMap<>();
         payload.put("numeroCuenta", numeroCuenta);
         payload.put("titular", cuenta.getTitular());
         sseService.notificar("CUENTA_ACTUALIZADA", payload);
         CuentaListSubject.notifyObservers(listar());
-
         return cuenta;
     }
 
-    // ============================================================
-    // CRUD Completo de Movimientos (buscar, actualizar, eliminar)
-    // ============================================================
+    // ===================================================================
+    // CRUD Movimientos
+    // ===================================================================
+
+    @Override
+    public Movimiento agregarMovimiento(int numeroCuenta, Movimiento datos) {
+        CuentaAhorros cuenta = buscarPorNumero(numeroCuenta);
+        if (datos.getMonto() <= 0)
+            throw new IllegalArgumentException("El monto debe ser mayor a cero");
+        String tipo = validarTipo(datos.getTipo());
+        if ("DEBITO".equals(tipo) && cuenta.getSaldo() < datos.getMonto())
+            throw new IllegalArgumentException("Saldo insuficiente. Saldo actual: $" + cuenta.getSaldo());
+
+        Movimiento mov = Movimiento.builder()
+                .id(nextMovimientoId++)
+                .fechaMovimiento(LocalDateTime.now())
+                .monto(datos.getMonto())
+                .tipo(tipo)
+                .numeroCuenta(numeroCuenta)
+                .build();
+
+        movimientosDe(numeroCuenta).add(mov);
+
+        if ("CREDITO".equals(tipo)) cuenta.setSaldo(cuenta.getSaldo() + datos.getMonto());
+        else                         cuenta.setSaldo(cuenta.getSaldo() - datos.getMonto());
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("numeroCuenta", numeroCuenta);
+        payload.put("tipo", tipo);
+        payload.put("monto", mov.getMonto());
+        sseService.notificar("MOVIMIENTO_AGREGADO", payload);
+        return mov;
+    }
+
+    @Override
+    public List<Movimiento> listarMovimientos(int numeroCuenta) {
+        buscarPorNumero(numeroCuenta); // valida existencia
+        return movimientosDe(numeroCuenta);
+    }
+
+    @Override
+    public List<Movimiento> listarTodosMovimientos() {
+        return movimMap.values().stream()
+                .flatMap(List::stream)
+                .sorted(Comparator.comparing(Movimiento::getFechaMovimiento).reversed())
+                .collect(Collectors.toList());
+    }
 
     @Override
     public Movimiento buscarMovimientoPorId(int numeroCuenta, int id) {
-        CuentaAhorros cuenta = buscarPorNumero(numeroCuenta);
-        return cuenta.getMovimientos().stream()
+        return movimientosDe(numeroCuenta).stream()
                 .filter(m -> m.getId() == id)
                 .findFirst()
                 .orElseThrow(() -> new NoSuchElementException(
@@ -229,51 +202,29 @@ public class CuentaAhorrosService implements ICuentaAhorrosService {
     @Override
     public Movimiento actualizarMovimiento(int numeroCuenta, int id, Movimiento datos) {
         CuentaAhorros cuenta = buscarPorNumero(numeroCuenta);
-        Movimiento movimiento = buscarMovimientoPorId(numeroCuenta, id);
-
-        if (datos.getMonto() <= 0) {
+        Movimiento mov = buscarMovimientoPorId(numeroCuenta, id);
+        if (datos.getMonto() <= 0)
             throw new IllegalArgumentException("El monto debe ser mayor a cero");
-        }
         String tipoNuevo = (datos.getTipo() != null && !datos.getTipo().isBlank())
-                ? datos.getTipo().toUpperCase()
-                : movimiento.getTipo();
-        if (!"CREDITO".equals(tipoNuevo) && !"DEBITO".equals(tipoNuevo)) {
-            throw new IllegalArgumentException("Tipo inválido: " + tipoNuevo + ". Use CREDITO o DEBITO");
-        }
+                ? validarTipo(datos.getTipo()) : mov.getTipo();
 
-        // Revertir efecto del movimiento anterior sobre el saldo
-        if ("CREDITO".equals(movimiento.getTipo())) {
-            cuenta.setSaldo(cuenta.getSaldo() - movimiento.getMonto());
-        } else {
-            cuenta.setSaldo(cuenta.getSaldo() + movimiento.getMonto());
-        }
+        // Revertir
+        if ("CREDITO".equals(mov.getTipo())) cuenta.setSaldo(cuenta.getSaldo() - mov.getMonto());
+        else                                  cuenta.setSaldo(cuenta.getSaldo() + mov.getMonto());
 
-        // Validar saldo para el nuevo DEBITO
+        // Validar
         if ("DEBITO".equals(tipoNuevo) && cuenta.getSaldo() < datos.getMonto()) {
-            // Restaurar saldo antes de lanzar excepción
-            if ("CREDITO".equals(movimiento.getTipo())) {
-                cuenta.setSaldo(cuenta.getSaldo() + movimiento.getMonto());
-            } else {
-                cuenta.setSaldo(cuenta.getSaldo() - movimiento.getMonto());
-            }
-            throw new IllegalArgumentException("Saldo insuficiente para el monto actualizado. Saldo: $" + cuenta.getSaldo());
+            if ("CREDITO".equals(mov.getTipo())) cuenta.setSaldo(cuenta.getSaldo() + mov.getMonto());
+            else                                  cuenta.setSaldo(cuenta.getSaldo() - mov.getMonto());
+            throw new IllegalArgumentException("Saldo insuficiente para el monto actualizado.");
         }
 
-        // Aplicar nuevo efecto en el saldo
-        if ("CREDITO".equals(tipoNuevo)) {
-            cuenta.setSaldo(cuenta.getSaldo() + datos.getMonto());
-        } else {
-            cuenta.setSaldo(cuenta.getSaldo() - datos.getMonto());
-        }
+        // Aplicar
+        if ("CREDITO".equals(tipoNuevo)) cuenta.setSaldo(cuenta.getSaldo() + datos.getMonto());
+        else                              cuenta.setSaldo(cuenta.getSaldo() - datos.getMonto());
 
-        // Actualizar también en la lista global
-        movimientosGlobales.stream()
-                .filter(m -> m.getId() == id)
-                .findFirst()
-                .ifPresent(m -> { m.setMonto(datos.getMonto()); m.setTipo(tipoNuevo); });
-
-        movimiento.setMonto(datos.getMonto());
-        movimiento.setTipo(tipoNuevo);
+        mov.setMonto(datos.getMonto());
+        mov.setTipo(tipoNuevo);
 
         Map<String, Object> payload = new HashMap<>();
         payload.put("numeroCuenta", numeroCuenta);
@@ -281,45 +232,43 @@ public class CuentaAhorrosService implements ICuentaAhorrosService {
         payload.put("tipo", tipoNuevo);
         payload.put("monto", datos.getMonto());
         sseService.notificar("MOVIMIENTO_ACTUALIZADO", payload);
-
-        return movimiento;
+        return mov;
     }
 
     @Override
     public boolean eliminarMovimiento(int numeroCuenta, int id) {
         CuentaAhorros cuenta = buscarPorNumero(numeroCuenta);
-        Movimiento movimiento = buscarMovimientoPorId(numeroCuenta, id);
+        Movimiento mov = buscarMovimientoPorId(numeroCuenta, id);
+        if ("CREDITO".equals(mov.getTipo())) cuenta.setSaldo(cuenta.getSaldo() - mov.getMonto());
+        else                                  cuenta.setSaldo(cuenta.getSaldo() + mov.getMonto());
 
-        // Revertir efecto en el saldo
-        if ("CREDITO".equals(movimiento.getTipo())) {
-            cuenta.setSaldo(cuenta.getSaldo() - movimiento.getMonto());
-        } else {
-            cuenta.setSaldo(cuenta.getSaldo() + movimiento.getMonto());
-        }
-
-        cuenta.getMovimientos().remove(movimiento);
-        movimientosGlobales.remove(movimiento);
+        movimientosDe(numeroCuenta).remove(mov);
 
         Map<String, Object> payload = new HashMap<>();
         payload.put("numeroCuenta", numeroCuenta);
         payload.put("movimientoId", id);
         sseService.notificar("MOVIMIENTO_ELIMINADO", payload);
-
         return true;
     }
 
     @Override
     public List<Movimiento> filtrarMovimientos(int numeroCuenta, String tipo,
                                                LocalDateTime desde, LocalDateTime hasta) {
-        return movimientosGlobales.stream()
+        return listarTodosMovimientos().stream()
                 .filter(m -> numeroCuenta == 0 || m.getNumeroCuenta() == numeroCuenta)
-                .filter(m -> tipo == null || tipo.isBlank()
-                        || tipo.equalsIgnoreCase(m.getTipo()))
-                .filter(m -> desde == null
-                        || !m.getFechaMovimiento().isBefore(desde))
-                .filter(m -> hasta == null
-                        || !m.getFechaMovimiento().isAfter(hasta))
-                .sorted(Comparator.comparing(Movimiento::getFechaMovimiento).reversed())
+                .filter(m -> tipo == null || tipo.isBlank() || tipo.equalsIgnoreCase(m.getTipo()))
+                .filter(m -> desde == null || !m.getFechaMovimiento().isBefore(desde))
+                .filter(m -> hasta == null || !m.getFechaMovimiento().isAfter(hasta))
                 .collect(Collectors.toList());
+    }
+
+    // ===================================================================
+    private String validarTipo(String tipo) {
+        if (tipo == null || tipo.isBlank())
+            throw new IllegalArgumentException("El tipo de movimiento es requerido");
+        String t = tipo.toUpperCase();
+        if (!"CREDITO".equals(t) && !"DEBITO".equals(t))
+            throw new IllegalArgumentException("Tipo inválido: '" + tipo + "'. Use CREDITO o DEBITO");
+        return t;
     }
 }

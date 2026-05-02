@@ -1,15 +1,20 @@
 package com.jacs.proyectomicroservicios.controller;
 
+import com.jacs.proyectomicroservicios.dto.MovimientoConTitularDTO;
+import com.jacs.proyectomicroservicios.dto.ResumenCuentaDTO;
 import com.jacs.proyectomicroservicios.model.CuentaAhorros;
 import com.jacs.proyectomicroservicios.model.Movimiento;
 import com.jacs.proyectomicroservicios.observer.SseService;
+import com.jacs.proyectomicroservicios.service.CuentaAhorrosJpaService;
 import com.jacs.proyectomicroservicios.service.ICuentaAhorrosService;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.NoSuchElementException;
 
@@ -18,11 +23,15 @@ import java.util.NoSuchElementException;
 @CrossOrigin(origins = "*", allowedHeaders = "*")
 public class CuentaAhorrosController implements ICuentaAhorrosController {
 
-    private final ICuentaAhorrosService service;
-    private final SseService sseService;
+    private final ICuentaAhorrosService    service;
+    private final CuentaAhorrosJpaService  jpaService;
+    private final SseService               sseService;
 
-    public CuentaAhorrosController(ICuentaAhorrosService service, SseService sseService) {
-        this.service = service;
+    public CuentaAhorrosController(ICuentaAhorrosService service,
+                                   CuentaAhorrosJpaService jpaService,
+                                   SseService sseService) {
+        this.service    = service;
+        this.jpaService = jpaService;
         this.sseService = sseService;
     }
 
@@ -44,6 +53,25 @@ public class CuentaAhorrosController implements ICuentaAhorrosController {
     @GetMapping("/movimientos")
     public ResponseEntity<List<Movimiento>> listarTodosMovimientos() {
         return ResponseEntity.ok(service.listarTodosMovimientos());
+    }
+
+    /**
+     * GET /cuentas/movimientos/filtrar
+     * Consulta personalizada #1 — TERCER PROTOTIPO.
+     * Devuelve movimientos con el titular de la cuenta (JOIN @ManyToOne).
+     *
+     * @param numeroCuenta cuenta específica (0 = todas)
+     * @param tipo         CREDITO / DEBITO (opcional)
+     * @param desde        fecha inicial ISO-8601 (opcional)
+     * @param hasta        fecha final   ISO-8601 (opcional)
+     */
+    @GetMapping("/movimientos/filtrar")
+    public ResponseEntity<List<MovimientoConTitularDTO>> filtrarMovimientosConTitular(
+            @RequestParam(defaultValue = "0") int numeroCuenta,
+            @RequestParam(required = false)   String tipo,
+            @RequestParam(required = false)   @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime desde,
+            @RequestParam(required = false)   @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime hasta) {
+        return ResponseEntity.ok(jpaService.filtrarConTitular(numeroCuenta, tipo, desde, hasta));
     }
 
     // POST /cuentas — Insertar
@@ -182,6 +210,22 @@ public class CuentaAhorrosController implements ICuentaAhorrosController {
         try {
             service.eliminarMovimiento(numero, id);
             return ResponseEntity.ok("Movimiento " + id + " eliminado de cuenta " + numero);
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage());
+        }
+    }
+
+    /**
+     * GET /cuentas/{numero}/resumen
+     * Consulta personalizada #2 — TERCER PROTOTIPO.
+     * Devuelve datos del maestro (CuentaAhorros) + dos campos del detalle (Movimiento):
+     *   totalMovimientos (COUNT) y totalCreditos (SUM de montos CREDITO).
+     */
+    @GetMapping("/{numero}/resumen")
+    public ResponseEntity<?> obtenerResumen(@PathVariable int numero) {
+        try {
+            ResumenCuentaDTO resumen = jpaService.obtenerResumen(numero);
+            return ResponseEntity.ok(resumen);
         } catch (NoSuchElementException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(e.getMessage());
         }

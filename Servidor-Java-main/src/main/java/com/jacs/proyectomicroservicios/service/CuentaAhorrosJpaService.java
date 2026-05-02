@@ -1,5 +1,7 @@
 package com.jacs.proyectomicroservicios.service;
 
+import com.jacs.proyectomicroservicios.dto.MovimientoConTitularDTO;
+import com.jacs.proyectomicroservicios.dto.ResumenCuentaDTO;
 import com.jacs.proyectomicroservicios.model.CuentaAhorros;
 import com.jacs.proyectomicroservicios.model.Movimiento;
 import com.jacs.proyectomicroservicios.observer.CuentaListSubject;
@@ -92,21 +94,14 @@ public class CuentaAhorrosJpaService implements ICuentaAhorrosService {
     @Override
     @Transactional(readOnly = true)
     public CuentaAhorros buscarPorNumero(int numeroCuenta) {
-        CuentaAhorros cuenta = cuentaRepo.findById(numeroCuenta)
+        return cuentaRepo.findById(numeroCuenta)
                 .orElseThrow(() -> new NoSuchElementException("Cuenta no encontrada: " + numeroCuenta));
-        // Carga movimientos en el campo @Transient
-        cuenta.setMovimientos(movimientoRepo
-                .findByNumeroCuentaOrderByFechaMovimientoDesc(numeroCuenta));
-        return cuenta;
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<CuentaAhorros> listar() {
-        List<CuentaAhorros> cuentas = cuentaRepo.findAllByOrderByNumeroCuentaAsc();
-        cuentas.forEach(c -> c.setMovimientos(
-                movimientoRepo.findByNumeroCuentaOrderByFechaMovimientoDesc(c.getNumeroCuenta())));
-        return cuentas;
+        return cuentaRepo.findAllByOrderByNumeroCuentaAsc();
     }
 
     @Override
@@ -114,19 +109,13 @@ public class CuentaAhorrosJpaService implements ICuentaAhorrosService {
     public List<CuentaAhorros> listarConFiltro(String titular, String estado) {
         String t = (titular != null && titular.isBlank()) ? null : titular;
         String e = (estado  != null && estado.isBlank())  ? null : estado;
-        List<CuentaAhorros> cuentas = cuentaRepo.filtrar(t, e);
-        cuentas.forEach(c -> c.setMovimientos(
-                movimientoRepo.findByNumeroCuentaOrderByFechaMovimientoDesc(c.getNumeroCuenta())));
-        return cuentas;
+        return cuentaRepo.filtrar(t, e);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<CuentaAhorros> buscarPorTitular(String titular) {
-        List<CuentaAhorros> cuentas = cuentaRepo.findByTitularContainingIgnoreCase(titular);
-        cuentas.forEach(c -> c.setMovimientos(
-                movimientoRepo.findByNumeroCuentaOrderByFechaMovimientoDesc(c.getNumeroCuenta())));
-        return cuentas;
+        return cuentaRepo.findByTitularContainingIgnoreCase(titular);
     }
 
     @Override
@@ -155,8 +144,6 @@ public class CuentaAhorrosJpaService implements ICuentaAhorrosService {
         sseService.notificar("CUENTA_ACTUALIZADA", payload);
         CuentaListSubject.notifyObservers(listar());
 
-        cuenta.setMovimientos(movimientoRepo
-                .findByNumeroCuentaOrderByFechaMovimientoDesc(numeroCuenta));
         return cuenta;
     }
 
@@ -336,21 +323,35 @@ public class CuentaAhorrosJpaService implements ICuentaAhorrosService {
     }
 
     // ===================================================================
-    // Filtros avanzados de movimientos
+    // Filtros avanzados y consultas personalizadas — TERCER PROTOTIPO
     // ===================================================================
 
-    /**
-     * Filtra movimientos de una cuenta por tipo y/o rango de fechas.
-     *
-     * @param numeroCuenta número de cuenta (0 = todas las cuentas)
-     * @param tipo         "CREDITO", "DEBITO" o null para todos
-     * @param desde        fecha inicial (null = sin límite inferior)
-     * @param hasta        fecha final   (null = sin límite superior)
-     */
+    @Override
     public List<Movimiento> filtrarMovimientos(int numeroCuenta, String tipo,
                                                LocalDateTime desde, LocalDateTime hasta) {
         String tipoFiltro = (tipo != null && !tipo.isBlank()) ? tipo.toUpperCase() : null;
         return movimientoRepo.filtrar(numeroCuenta, tipoFiltro, desde, hasta);
+    }
+
+    /**
+     * Consulta personalizada #1 — Movimiento + titular de CuentaAhorros (JOIN @ManyToOne).
+     * Devuelve {@link MovimientoConTitularDTO}.
+     * Endpoint: GET /cuentas/movimientos/filtrar
+     */
+    public List<MovimientoConTitularDTO> filtrarConTitular(int numeroCuenta, String tipo,
+                                                           LocalDateTime desde, LocalDateTime hasta) {
+        String tipoFiltro = (tipo != null && !tipo.isBlank()) ? tipo.toUpperCase() : null;
+        return movimientoRepo.filtrarConTitular(numeroCuenta, tipoFiltro, desde, hasta);
+    }
+
+    /**
+     * Consulta personalizada #2 — Datos de CuentaAhorros + dos campos de Movimiento.
+     * Devuelve {@link ResumenCuentaDTO}.
+     * Endpoint: GET /cuentas/{numero}/resumen
+     */
+    public ResumenCuentaDTO obtenerResumen(int numeroCuenta) {
+        return cuentaRepo.findResumenPorNumero(numeroCuenta)
+                .orElseThrow(() -> new NoSuchElementException("Cuenta no encontrada: " + numeroCuenta));
     }
 
     // ===================================================================

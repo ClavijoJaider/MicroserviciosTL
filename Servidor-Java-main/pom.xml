@@ -32,31 +32,10 @@
 			<artifactId>spring-boot-starter-data-jpa</artifactId>
 		</dependency>
 
-		<!--
-			CORRECCIÓN CRÍTICA DEL ERROR DE ARRANQUE:
-			"package com.fasterxml.jackson.databind does not exist"
+		<!-- NOTA: Jackson 3.x (tools.jackson) viene transitivo vía spring-boot-starter-web.
+		     NO declarar com.fasterxml.jackson (Jackson 2.x) — son incompatibles. -->
 
-			Causa: spring-boot-starter-data-jpa en Spring Boot 4.x no incluye
-			jackson-databind de forma transitiva. Se declara de forma explícita
-			para garantizar que esté en el classpath de compilación y ejecución.
-		-->
-		<dependency>
-			<groupId>com.fasterxml.jackson.core</groupId>
-			<artifactId>jackson-databind</artifactId>
-		</dependency>
-		<!-- Soporte de LocalDateTime / LocalDate en serialización JSON -->
-		<dependency>
-			<groupId>com.fasterxml.jackson.datatype</groupId>
-			<artifactId>jackson-datatype-jsr310</artifactId>
-		</dependency>
-
-		<!--
-			H2 — Base de datos embebida para desarrollo/pruebas.
-			No requiere instalar nada. Se activa automáticamente cuando
-			Oracle no está configurado (perfil por defecto).
-			Para usar Oracle: activa el perfil 'oracle' en application.properties
-			o pasa --spring.profiles.active=oracle al ejecutar.
-		-->
+		<!-- H2 en modo archivo compartido (AUTO_SERVER): ambos microservicios comparten BD -->
 		<dependency>
 			<groupId>com.h2database</groupId>
 			<artifactId>h2</artifactId>

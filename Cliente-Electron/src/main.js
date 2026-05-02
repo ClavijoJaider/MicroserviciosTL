@@ -3,7 +3,9 @@ const axios = require('axios');
 const http = require('http');
 const path = require('path');
 
-const API_URL = 'http://localhost:8080/cuentas';
+// URLs de los dos microservicios
+const CUENTAS_URL    = 'http://localhost:8080/cuentas';
+const MOVIMIENTOS_URL = 'http://localhost:8081/movimientos';
 
 // ============== SINGLETON PATTERN ==============
 class VentanaManager {
@@ -40,10 +42,14 @@ class VentanaManager {
 
 // ============== OBSERVER PATTERN (en servidor via SSE) ==============
 /**
- * CuentaObserver: recibe notificaciones del servidor (SSE) y las reenvía
+ * CuentaObserver: recibe notificaciones de AMBOS servidores (SSE) y las reenvía
  * a todas las ventanas Electron abiertas mediante IPC.
- * El servidor es el Subject; este observer actúa de puente entre el
- * stream SSE del servidor y las ventanas del cliente Electron.
+ *
+ * El Subject son los dos microservicios:
+ *   - MS-CuentaAhorros  (8080): eventos CUENTA_CREADA, CUENTA_ACTUALIZADA, CUENTA_ELIMINADA
+ *   - MS-Movimiento     (8081): eventos MOVIMIENTO_CREADO, MOVIMIENTO_ACTUALIZADO, MOVIMIENTO_ELIMINADO
+ *
+ * Este observer actúa de puente entre los streams SSE y las ventanas Electron.
  */
 class CuentaObserver {
   constructor(ventanaMgr) {
@@ -95,6 +101,11 @@ class IMovimientoRepository {
 }
 
 // ============== DEPENDENCY INVERSION ==============
+/**
+ * ApiService genérico — instanciado dos veces:
+ *   apiCuentas      → http://localhost:8080/cuentas
+ *   apiMovimientos  → http://localhost:8081/movimientos
+ */
 class ApiService extends IApiService {
   constructor(baseUrl) {
     super();
@@ -111,47 +122,62 @@ class ApiService extends IApiService {
       return { success: false, error: typeof msg === 'string' ? msg : JSON.stringify(msg) };
     }
   }
-  listar() { return this.request('GET', ''); }
-  crear(cuenta) { return this.request('POST', '', cuenta); }
-  buscar(numero) { return this.request('GET', '/' + numero); }
-  buscarPorTitular(titular) { return this.request('GET', '/buscar?titular=' + encodeURIComponent(titular)); }
+
+  // --- Endpoints de Cuentas (usado por apiCuentas) ---
+  listar()                      { return this.request('GET',    ''); }
+  crear(cuenta)                 { return this.request('POST',   '', cuenta); }
+  buscar(numero)                { return this.request('GET',    '/' + numero); }
+  buscarPorTitular(titular)     { return this.request('GET',    '/buscar?titular=' + encodeURIComponent(titular)); }
   filtrar(titular, estado) {
     const params = [];
     if (titular) params.push('titular=' + encodeURIComponent(titular));
     if (estado && estado !== 'Todos') params.push('estado=' + encodeURIComponent(estado));
     return this.request('GET', '/filtrar' + (params.length ? '?' + params.join('&') : ''));
   }
-  actualizar(numero, cuenta) { return this.request('PUT', '/' + numero, cuenta); }
-  eliminar(numero) { return this.request('DELETE', '/' + numero); }
-  agregarMovimiento(numero, datos) { return this.request('POST', '/' + numero + '/movimientos', datos); }
-  listarMovimientos(numero) { return this.request('GET', '/' + numero + '/movimientos'); }
-  listarTodosMovimientos() { return this.request('GET', '/movimientos'); }
-  // CRUD completo movimientos
-  buscarMovimiento(numero, id) { return this.request('GET', '/' + numero + '/movimientos/' + id); }
-  actualizarMovimiento(numero, id, datos) { return this.request('PUT', '/' + numero + '/movimientos/' + id, datos); }
-  eliminarMovimiento(numero, id) { return this.request('DELETE', '/' + numero + '/movimientos/' + id); }
+  actualizar(numero, cuenta)    { return this.request('PUT',    '/' + numero, cuenta); }
+  eliminar(numero)              { return this.request('DELETE', '/' + numero); }
+
+  // --- Endpoints de Movimientos (usado por apiMovimientos) ---
+  // POST /movimientos  — numeroCuenta va en el body, MS-Movimiento valida en MS-CuentaAhorros (intercomunicación)
+  crearMovimiento(datos)        { return this.request('POST',   '',                dados => datos); }
+  listarMovimientos()           { return this.request('GET',    ''); }
+  listarMovimientosCuenta(num)  { return this.request('GET',    '/cuenta/' + num); }
+  buscarMovimiento(id)          { return this.request('GET',    '/' + id); }
+  filtrarMovimientos(num, tipo) {
+    const params = [];
+    if (num > 0) params.push('numeroCuenta=' + num);
+    if (tipo && tipo !== 'Todos') params.push('tipo=' + encodeURIComponent(tipo));
+    return this.request('GET', '/filtrar' + (params.length ? '?' + params.join('&') : ''));
+  }
+  actualizarMovimiento(id, datos) { return this.request('PUT',    '/' + id, datos); }
+  eliminarMovimiento(id)          { return this.request('DELETE', '/' + id); }
 }
 
 // ============== SINGLE RESPONSIBILITY ==============
 class CuentaRepository extends ICuentaRepository {
   constructor(api) { super(); this.api = api; }
-  crear(cuenta) { return this.api.crear(cuenta); }
-  listar() { return this.api.listar(); }
-  filtrar(titular, estado) { return this.api.filtrar(titular, estado); }
-  buscar(numero) { return this.api.buscar(numero); }
-  buscarPorTitular(t) { return this.api.buscarPorTitular(t); }
-  actualizar(n, c) { return this.api.actualizar(n, c); }
-  eliminar(n) { return this.api.eliminar(n); }
+  crear(cuenta)          { return this.api.crear(cuenta); }
+  listar()               { return this.api.listar(); }
+  filtrar(titular, est)  { return this.api.filtrar(titular, est); }
+  buscar(numero)         { return this.api.buscar(numero); }
+  buscarPorTitular(t)    { return this.api.buscarPorTitular(t); }
+  actualizar(n, c)       { return this.api.actualizar(n, c); }
+  eliminar(n)            { return this.api.eliminar(n); }
 }
 
 class MovimientoRepository extends IMovimientoRepository {
   constructor(api) { super(); this.api = api; }
-  agregar(n, monto, tipo) { return this.api.agregarMovimiento(n, { monto, tipo }); }
-  listar(n) { return this.api.listarMovimientos(n); }
-  listarTodos() { return this.api.listarTodosMovimientos(); }
-  buscar(n, id) { return this.api.buscarMovimiento(n, id); }
-  actualizar(n, id, datos) { return this.api.actualizarMovimiento(n, id, datos); }
-  eliminar(n, id) { return this.api.eliminarMovimiento(n, id); }
+
+  // POST /movimientos — body: {numeroCuenta, monto, tipo}
+  agregar(numeroCuenta, monto, tipo) {
+    return this.api.request('POST', '', { numeroCuenta, monto, tipo: tipo.toUpperCase() });
+  }
+  listar(numeroCuenta)  { return this.api.listarMovimientosCuenta(numeroCuenta); }
+  listarTodos()         { return this.api.listarMovimientos(); }
+  buscar(id)            { return this.api.buscarMovimiento(id); }
+  filtrar(num, tipo)    { return this.api.filtrarMovimientos(num, tipo); }
+  actualizar(id, datos) { return this.api.actualizarMovimiento(id, datos); }
+  eliminar(id)          { return this.api.eliminarMovimiento(id); }
 }
 
 // ============== OPEN/CLOSED ==============
@@ -162,9 +188,9 @@ class CuentaService {
     if (r.success) this.obs.notificar('CUENTA_CREADA', cuenta);
     return r;
   }
-  buscar(n) { return this.repo.buscar(n); }
-  listar() { return this.repo.listar(); }
-  filtrar(t, es) { return this.repo.filtrar(t, es); }
+  buscar(n)            { return this.repo.buscar(n); }
+  listar()             { return this.repo.listar(); }
+  filtrar(t, es)       { return this.repo.filtrar(t, es); }
   async actualizar(n, c) {
     const r = await this.repo.actualizar(n, c);
     if (r.success) this.obs.notificar('CUENTA_ACTUALIZADA', c);
@@ -179,13 +205,25 @@ class CuentaService {
 
 class MovimientoService {
   constructor(repo, obs) { this.repo = repo; this.obs = obs; }
-  async agregar(n, monto, tipo) {
-    const r = await this.repo.agregar(n, monto, tipo);
-    if (r.success) this.obs.notificar('MOVIMIENTO_AGREGADO', { numero: n, monto, tipo });
+  async agregar(numeroCuenta, monto, tipo) {
+    const r = await this.repo.agregar(numeroCuenta, monto, tipo);
+    if (r.success) this.obs.notificar('MOVIMIENTO_CREADO', { numeroCuenta, monto, tipo });
     return r;
   }
-  listar(n) { return this.repo.listar(n); }
-  listarTodos() { return this.repo.listarTodos(); }
+  listar(n)         { return this.repo.listar(n); }
+  listarTodos()     { return this.repo.listarTodos(); }
+  buscar(id)        { return this.repo.buscar(id); }
+  filtrar(num, tipo){ return this.repo.filtrar(num, tipo); }
+  async actualizar(id, datos) {
+    const r = await this.repo.actualizar(id, datos);
+    if (r.success) this.obs.notificar('MOVIMIENTO_ACTUALIZADO', { id, ...datos });
+    return r;
+  }
+  async eliminar(id) {
+    const r = await this.repo.eliminar(id);
+    if (r.success) this.obs.notificar('MOVIMIENTO_ELIMINADO', { id });
+    return r;
+  }
 }
 
 // ============== LISKOV SUBSTITUTION ==============
@@ -200,85 +238,94 @@ class CacheCuentaRepository extends CuentaRepository {
   invalidar(numero) { this.cache.delete(numero); }
 }
 
-// Instanciación
-const api = new ApiService(API_URL);
-const vm = new VentanaManager();
+// ============== INSTANCIACIÓN ==============
+const apiCuentas     = new ApiService(CUENTAS_URL);
+const apiMovimientos = new ApiService(MOVIMIENTOS_URL);
+
+const vm       = new VentanaManager();
 const observer = new CuentaObserver(vm);
 observer.agregar(new ConsoleLogger());
 
-const repoCuentas = new CacheCuentaRepository(api);
-const repoMov = new MovimientoRepository(api);
-const cuentaSvc = new CuentaService(repoCuentas, observer);
-const movSvc = new MovimientoService(repoMov, observer);
+const repoCuentas = new CacheCuentaRepository(apiCuentas);
+const repoMov     = new MovimientoRepository(apiMovimientos);
+const cuentaSvc   = new CuentaService(repoCuentas, observer);
+const movSvc      = new MovimientoService(repoMov, observer);
 
-// ============== CONEXIÓN SSE AL SERVIDOR (Observer en servidor) ==============
+// ============== OBSERVER SSE — dos conexiones, una por microservicio ==============
 /**
- * El servidor es el Subject del patrón Observer. Este cliente se suscribe
- * al endpoint SSE para recibir notificaciones en tiempo real cuando
- * cambian los datos en el servidor.
+ * Los dos microservicios son los Subjects del patrón Observer.
+ * Este cliente se suscribe a ambos endpoints SSE para recibir notificaciones
+ * en tiempo real de cualquier cambio — sin polling.
+ *
+ *   SSE-1: GET http://localhost:8080/cuentas/eventos     → eventos de cuentas
+ *   SSE-2: GET http://localhost:8081/movimientos/eventos → eventos de movimientos
  */
-let sseRequest = null;
+let sseRequests = [];
 
-function conectarSSEServidor() {
-  if (sseRequest) { try { sseRequest.destroy(); } catch(e){} sseRequest = null; }
-
-  const req = http.get(`${API_URL}/eventos`, { headers: { 'Accept': 'text/event-stream', 'Cache-Control': 'no-cache' } }, (res) => {
-    console.log('[SSE] Conectado al servidor. Status:', res.statusCode);
+function conectarSSE(url, etiqueta) {
+  const req = http.get(url, {
+    headers: { 'Accept': 'text/event-stream', 'Cache-Control': 'no-cache' }
+  }, (res) => {
+    console.log(`[SSE-${etiqueta}] Conectado. Status: ${res.statusCode}`);
     let buffer = '';
 
     res.on('data', (chunk) => {
       buffer += chunk.toString();
       const lineas = buffer.split('\n');
-      buffer = lineas.pop(); // Conservar línea incompleta
+      buffer = lineas.pop(); // conservar línea incompleta
 
       for (const linea of lineas) {
         if (linea.startsWith('data:')) {
           try {
-            const jsonStr = linea.substring(5).trim();
-            const payload = JSON.parse(jsonStr);
-            // Notificar a todas las ventanas Electron con el evento del servidor
+            const jsonStr  = linea.substring(5).trim();
+            const payload  = JSON.parse(jsonStr);
             observer.notificar(payload.evento || 'ACTUALIZACION', payload.datos || {});
-          } catch (e) { /* Ignorar líneas no JSON */ }
+          } catch (e) { /* ignorar líneas no JSON */ }
         }
       }
     });
 
     res.on('error', () => {
-      console.log('[SSE] Error en stream. Reconectando en 3s...');
-      setTimeout(conectarSSEServidor, 3000);
+      console.log(`[SSE-${etiqueta}] Error en stream. Reconectando en 3s...`);
+      setTimeout(() => conectarSSE(url, etiqueta), 3000);
     });
 
     res.on('close', () => {
-      console.log('[SSE] Conexión cerrada. Reconectando en 3s...');
-      setTimeout(conectarSSEServidor, 3000);
+      console.log(`[SSE-${etiqueta}] Conexión cerrada. Reconectando en 3s...`);
+      setTimeout(() => conectarSSE(url, etiqueta), 3000);
     });
   });
 
   req.on('error', () => {
-    console.log('[SSE] Servidor no disponible. Reintentando en 3s...');
-    setTimeout(conectarSSEServidor, 3000);
+    console.log(`[SSE-${etiqueta}] Servidor no disponible. Reintentando en 3s...`);
+    setTimeout(() => conectarSSE(url, etiqueta), 3000);
   });
 
-  sseRequest = req;
+  sseRequests.push(req);
 }
 
-// IPC Handlers
-ipcMain.handle('healthcheck', () => cuentaSvc.listar());
-ipcMain.handle('crear-cuenta', (e, c) => cuentaSvc.crear(c));
-ipcMain.handle('listar-cuentas', () => cuentaSvc.listar());
-ipcMain.handle('filtrar-cuentas', (e, t, es) => cuentaSvc.filtrar(t, es));
-ipcMain.handle('buscar-cuenta', (e, n) => cuentaSvc.buscar(n));
-ipcMain.handle('buscar-por-titular', (e, t) => repoCuentas.buscarPorTitular(t));
+// ============== IPC HANDLERS ==============
+// Cuentas → MS-CuentaAhorros (8080)
+ipcMain.handle('healthcheck',       ()        => cuentaSvc.listar());
+ipcMain.handle('crear-cuenta',      (e, c)    => cuentaSvc.crear(c));
+ipcMain.handle('listar-cuentas',    ()        => cuentaSvc.listar());
+ipcMain.handle('filtrar-cuentas',   (e, t, s) => cuentaSvc.filtrar(t, s));
+ipcMain.handle('buscar-cuenta',     (e, n)    => cuentaSvc.buscar(n));
+ipcMain.handle('buscar-por-titular',(e, t)    => repoCuentas.buscarPorTitular(t));
 ipcMain.handle('actualizar-cuenta', (e, n, c) => cuentaSvc.actualizar(n, c));
-ipcMain.handle('eliminar-cuenta', (e, n) => cuentaSvc.eliminar(n));
-ipcMain.handle('agregar-movimiento', (e, n, m, t) => movSvc.agregar(n, m, t));
-ipcMain.handle('listar-movimientos', (e, n) => movSvc.listar(n));
-ipcMain.handle('listar-todos-movimientos', () => movSvc.listarTodos());
-// CRUD completo de movimientos
-ipcMain.handle('buscar-movimiento', (e, n, id) => movSvc.buscar(n, id));
-ipcMain.handle('actualizar-movimiento', (e, n, id, datos) => movSvc.actualizar(n, id, datos));
-ipcMain.handle('eliminar-movimiento', (e, n, id) => movSvc.eliminar(n, id));
+ipcMain.handle('eliminar-cuenta',   (e, n)    => cuentaSvc.eliminar(n));
 
+// Movimientos → MS-Movimiento (8081)
+// agregar-movimiento: body {numeroCuenta, monto, tipo} — MS-Movimiento valida cuenta en 8080 (intercomunicación)
+ipcMain.handle('agregar-movimiento',    (e, n, m, t)    => movSvc.agregar(n, m, t));
+ipcMain.handle('listar-movimientos',    (e, n)          => movSvc.listar(n));
+ipcMain.handle('listar-todos-movimientos', ()           => movSvc.listarTodos());
+ipcMain.handle('buscar-movimiento',     (e, _n, id)     => movSvc.buscar(id));          // numeroCuenta ignorado, ya no en URL
+ipcMain.handle('actualizar-movimiento', (e, n, id, datos) => movSvc.actualizar(id, { numeroCuenta: n, ...datos }));
+ipcMain.handle('eliminar-movimiento',   (e, _n, id)     => movSvc.eliminar(id));
+ipcMain.handle('filtrar-movimientos',   (e, num, tipo)  => movSvc.filtrar(num, tipo));  // nuevo
+
+// ============== VENTANA PRINCIPAL ==============
 let principal = null;
 
 function iniciar() {
@@ -295,11 +342,11 @@ function iniciar() {
   const menu = Menu.buildFromTemplate([
     {
       label: 'Cuentas', submenu: [
-        { label: 'Crear', click: () => vm.crear('crear', { width: 360, height: 430, archivo: 'ventanas/crear.html', parent: principal, preload: preloadPath }) },
-        { label: 'Buscar', click: () => vm.crear('buscar', { width: 360, height: 280, archivo: 'ventanas/buscar.html', parent: principal, preload: preloadPath }) },
+        { label: 'Crear',      click: () => vm.crear('crear',      { width: 360, height: 430, archivo: 'ventanas/crear.html',      parent: principal, preload: preloadPath }) },
+        { label: 'Buscar',     click: () => vm.crear('buscar',     { width: 360, height: 280, archivo: 'ventanas/buscar.html',     parent: principal, preload: preloadPath }) },
         { label: 'Actualizar', click: () => vm.crear('actualizar', { width: 360, height: 340, archivo: 'ventanas/actualizar.html', parent: principal, preload: preloadPath }) },
-        { label: 'Eliminar', click: () => vm.crear('eliminar', { width: 360, height: 350, archivo: 'ventanas/eliminar.html', parent: principal, preload: preloadPath }) },
-        { label: 'Listar', click: () => vm.crear('listar', { width: 560, height: 420, archivo: 'ventanas/listar.html', parent: principal, preload: preloadPath }) }
+        { label: 'Eliminar',   click: () => vm.crear('eliminar',   { width: 360, height: 350, archivo: 'ventanas/eliminar.html',   parent: principal, preload: preloadPath }) },
+        { label: 'Listar',     click: () => vm.crear('listar',     { width: 560, height: 420, archivo: 'ventanas/listar.html',     parent: principal, preload: preloadPath }) }
       ]
     },
     {
@@ -317,7 +364,7 @@ function iniciar() {
           label: 'Acerca de...', click: () => {
             dialog.showMessageBox(principal, {
               title: 'Acerca de WayBank',
-              message: 'WayBank - Sistema de Gestión Bancaria\n\nDesarrollado por:\n  Carlos Gil\n  Jaider Clavijo\n  Santiago Lozano\n\nVersión: 1.0.0\nArquitectura: REST + SSE + MVC',
+              message: 'WayBank - Sistema de Gestión Bancaria\n\nDesarrollado por:\n  Carlos Gil\n  Jaider Clavijo\n  Santiago Lozano\n\nVersión: 1.0.0\nArquitectura: REST + SSE + MVC\nMicroservicios: CuentaAhorros:8080 | Movimiento:8081',
               buttons: ['Cerrar']
             });
           }
@@ -328,13 +375,17 @@ function iniciar() {
   ]);
   Menu.setApplicationMenu(menu);
 
-  // Iniciar conexión SSE al servidor (Observer en servidor)
-  setTimeout(conectarSSEServidor, 1000);
+  // Iniciar SSE a los DOS microservicios (Observer en servidor)
+  setTimeout(() => {
+    conectarSSE(`${CUENTAS_URL}/eventos`,     'CuentaAhorros-8080');
+    conectarSSE(`${MOVIMIENTOS_URL}/eventos`, 'Movimiento-8081');
+  }, 1000);
 }
 
 app.whenReady().then(iniciar);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (!principal || principal.isDestroyed()) iniciar(); });
 app.on('before-quit', () => {
-  if (sseRequest) { try { sseRequest.destroy(); } catch(e){} }
+  sseRequests.forEach(r => { try { r.destroy(); } catch(e){} });
+  sseRequests = [];
 });

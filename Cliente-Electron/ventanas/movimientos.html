@@ -139,9 +139,11 @@
       document.getElementById('resultado').textContent = '';
     }
 
-    // Observer: actualiza el saldo si el servidor notifica un movimiento en esta cuenta
+    // Observer: actualiza el saldo si MS-Movimiento (8081) notifica un movimiento en esta cuenta
+    // El evento se llama MOVIMIENTO_CREADO en el nuevo microservicio de detalle
     window.api.onActualizacion((evt) => {
-      if (cuentaActual && evt.evento === 'MOVIMIENTO_AGREGADO' && evt.datos && evt.datos.numeroCuenta === cuentaActual.numeroCuenta) {
+      const esMovimiento = evt.evento === 'MOVIMIENTO_CREADO' || evt.evento === 'MOVIMIENTO_AGREGADO';
+      if (cuentaActual && esMovimiento && evt.datos && evt.datos.numeroCuenta === cuentaActual.numeroCuenta) {
         buscarCuenta();
       }
     });

@@ -2,23 +2,39 @@ package com.jacs.proyectomicroservicios;
 
 import com.jacs.proyectomicroservicios.model.CuentaAhorros;
 import com.jacs.proyectomicroservicios.model.Movimiento;
-import com.jacs.proyectomicroservicios.service.CuentaAhorrosService;
+import com.jacs.proyectomicroservicios.service.ICuentaAhorrosService;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 
+/**
+ * Carga datos de prueba al iniciar el servidor.
+ *
+ * IDEMPOTENTE: solo inserta datos si la BD está vacía.
+ * Con ddl-auto=update (modo H2 archivo) los datos persisten entre reinicios;
+ * este guard evita duplicados y errores de PK al reiniciar el servidor.
+ *
+ * Inyecta ICuentaAhorrosService (interfaz) — Spring resuelve la implementación
+ * activa: CuentaAhorrosJpaService (@Primary) por defecto.
+ */
 @Component
 public class DataSeeder implements CommandLineRunner {
 
-    private final CuentaAhorrosService service;
+    private final ICuentaAhorrosService service;
 
-    public DataSeeder(CuentaAhorrosService service) {
+    public DataSeeder(ICuentaAhorrosService service) {
         this.service = service;
     }
 
     @Override
     public void run(String... args) {
+        // Guard: si ya hay cuentas en BD no duplicar datos
+        if (!service.listar().isEmpty()) {
+            System.out.println("=== DataSeeder: BD ya tiene datos, omitiendo carga inicial ===");
+            return;
+        }
+
         // Cuentas maestro con al menos 5 atributos: int, double, String, LocalDateTime, double
         CuentaAhorros c1 = new CuentaAhorros();
         c1.setNumeroCuenta(1001);
@@ -73,6 +89,6 @@ public class DataSeeder implements CommandLineRunner {
         m4.setTipo("DEBITO");
         service.agregarMovimiento(1003, m4);
 
-        System.out.println("=== DataSeeder: " + 4 + " cuentas y 4 movimientos cargados ===");
+        System.out.println("=== DataSeeder: 4 cuentas y 4 movimientos cargados ===");
     }
 }

@@ -9,30 +9,42 @@ using WayBankClient.model;
 
 namespace WayBankClient.service
 {
-    /**
-     * Singleton que centraliza todas las peticiones REST al servidor.
-     *
-     * OBSERVER en cliente: en lugar de un timer de polling, este servicio
-     * se suscribe al endpoint SSE del servidor (GET /cuentas/eventos).
-     * Cuando el servidor emite un evento (cuenta creada, actualizada, eliminada,
-     * movimiento agregado), se disparan los eventos OnCuentasActualizadas y
-     * OnMovimientosActualizados para que las vistas reaccionen en tiempo real.
-     */
+    /// <summary>
+    /// Singleton que centraliza todas las peticiones REST a los dos microservicios:
+    ///
+    ///   clientCuentas     → http://localhost:8080/cuentas   (MS-CuentaAhorros)
+    ///   clientMovimientos → http://localhost:8081/movimientos (MS-Movimiento)
+    ///
+    /// OBSERVER en cliente (patrón Observer — lado cliente):
+    ///   Este servicio abre DOS hilos SSE, uno por microservicio.
+    ///   Cuando cualquiera de los servidores emite un evento, se disparan
+    ///   los eventos OnCuentasActualizadas / OnMovimientosActualizados
+    ///   para que todas las vistas reaccionen en tiempo real sin polling.
+    ///
+    ///   SSE Hilo 1 → GET http://localhost:8080/cuentas/eventos
+    ///   SSE Hilo 2 → GET http://localhost:8081/movimientos/eventos
+    /// </summary>
     public class ServicePeticiones : IServicePeticiones
     {
         private static ServicePeticiones instance;
-        private readonly RestClient client;
 
+        // Un cliente REST por microservicio
+        private readonly RestClient clientCuentas;
+        private readonly RestClient clientMovimientos;
+
+        // Eventos Observer que las vistas suscriben
         public event Action OnCuentasActualizadas;
         public event Action OnMovimientosActualizados;
 
-        private Thread sseThread;
+        // Dos hilos SSE, uno por microservicio
+        private Thread sseCuentasThread;
+        private Thread sseMovimientosThread;
         private volatile bool sseActivo = false;
 
         private ServicePeticiones()
         {
-            var options = new RestClientOptions("http://localhost:8080/cuentas");
-            client = new RestClient(options);
+            clientCuentas     = new RestClient(new RestClientOptions("http://localhost:8080/cuentas"));
+            clientMovimientos = new RestClient(new RestClientOptions("http://localhost:8081/movimientos"));
             IniciarSSE();
         }
 
@@ -43,45 +55,62 @@ namespace WayBankClient.service
             return instance;
         }
 
-        // ============ OBSERVER: conexión SSE al servidor ============
+        // ================================================================
+        // OBSERVER — conexión SSE a los dos microservicios
+        // ================================================================
 
         private void IniciarSSE()
         {
             sseActivo = true;
-            sseThread = new Thread(ConectarSSE)
+
+            // Hilo SSE → MS-CuentaAhorros (8080)
+            sseCuentasThread = new Thread(() => ConectarSSE(
+                "http://localhost:8080/cuentas/eventos",
+                () => OnCuentasActualizadas?.Invoke()
+            ))
             {
                 IsBackground = true,
-                Name = "SSE-Observer-Thread"
+                Name = "SSE-CuentaAhorros-Thread"
             };
-            sseThread.Start();
+            sseCuentasThread.Start();
+
+            // Hilo SSE → MS-Movimiento (8081)
+            sseMovimientosThread = new Thread(() => ConectarSSE(
+                "http://localhost:8081/movimientos/eventos",
+                () => OnMovimientosActualizados?.Invoke()
+            ))
+            {
+                IsBackground = true,
+                Name = "SSE-Movimiento-Thread"
+            };
+            sseMovimientosThread.Start();
         }
 
-        private void ConectarSSE()
+        /// <summary>
+        /// Mantiene la conexión SSE al endpoint indicado.
+        /// Al recibir cualquier evento "data:", invoca el callback para notificar vistas.
+        /// Se reconecta automáticamente si el servidor no está disponible.
+        /// </summary>
+        private void ConectarSSE(string url, Action onEvento)
         {
             while (sseActivo)
             {
                 try
                 {
-                    var req = (HttpWebRequest)WebRequest.Create("http://localhost:8080/cuentas/eventos");
-                    req.Accept = "text/event-stream";
-                    req.Timeout = System.Threading.Timeout.Infinite;
+                    var req = (HttpWebRequest)WebRequest.Create(url);
+                    req.Accept           = "text/event-stream";
+                    req.Timeout          = System.Threading.Timeout.Infinite;
                     req.ReadWriteTimeout = System.Threading.Timeout.Infinite;
 
-                    using (var resp = (HttpWebResponse)req.GetResponse())
+                    using (var resp   = (HttpWebResponse)req.GetResponse())
                     using (var stream = resp.GetResponseStream())
                     using (var reader = new StreamReader(stream))
                     {
                         while (sseActivo && !reader.EndOfStream)
                         {
                             var linea = reader.ReadLine();
-                            if (linea == null) continue;
-
-                            if (linea.StartsWith("data:"))
-                            {
-                                // El servidor notificó un cambio: avisar a todas las vistas
-                                OnCuentasActualizadas?.Invoke();
-                                OnMovimientosActualizados?.Invoke();
-                            }
+                            if (linea != null && linea.StartsWith("data:"))
+                                onEvento();
                         }
                     }
                 }
@@ -91,9 +120,8 @@ namespace WayBankClient.service
                 }
                 catch (Exception)
                 {
-                    // Reconectar tras 3 segundos si el servidor no está disponible
-                    if (sseActivo)
-                        Thread.Sleep(3000);
+                    // Servidor no disponible — reintentar en 3 s
+                    if (sseActivo) Thread.Sleep(3000);
                 }
             }
         }
@@ -101,7 +129,8 @@ namespace WayBankClient.service
         public void DetenerSSE()
         {
             sseActivo = false;
-            sseThread?.Interrupt();
+            sseCuentasThread?.Interrupt();
+            sseMovimientosThread?.Interrupt();
         }
 
         public void NotificarCambios()
@@ -110,14 +139,15 @@ namespace WayBankClient.service
             OnMovimientosActualizados?.Invoke();
         }
 
-        // ============ CRUD Cuentas ============
+        // ================================================================
+        // CRUD Cuentas → MS-CuentaAhorros (8080)
+        // ================================================================
 
         public bool CrearCuenta(CuentaAhorrosDto cuenta)
         {
             var request = new RestRequest("", Method.Post);
             request.AddJsonBody(cuenta);
-            var response = client.Execute(request);
-
+            var response = clientCuentas.Execute(request);
             if (!response.IsSuccessful)
             {
                 MessageBox.Show("Error al crear cuenta: " + response.Content,
@@ -129,57 +159,48 @@ namespace WayBankClient.service
 
         public List<CuentaAhorrosDto> ListarCuentas()
         {
-            var request = new RestRequest("", Method.Get);
-            var response = client.Get<List<CuentaAhorrosDto>>(request);
-            return response ?? new List<CuentaAhorrosDto>();
+            return clientCuentas.Get<List<CuentaAhorrosDto>>(new RestRequest("", Method.Get))
+                   ?? new List<CuentaAhorrosDto>();
         }
 
         public List<CuentaAhorrosDto> ListarCuentasPorEstado(string estado)
         {
             var request = new RestRequest("filtrar", Method.Get);
             request.AddQueryParameter("estado", estado);
-            var response = client.Get<List<CuentaAhorrosDto>>(request);
-            return response ?? new List<CuentaAhorrosDto>();
+            return clientCuentas.Get<List<CuentaAhorrosDto>>(request)
+                   ?? new List<CuentaAhorrosDto>();
         }
 
         public List<CuentaAhorrosDto> FiltrarCuentas(string titular, string estado)
         {
             var request = new RestRequest("filtrar", Method.Get);
-
             if (!string.IsNullOrWhiteSpace(titular))
                 request.AddQueryParameter("titular", titular);
-
             if (!string.IsNullOrWhiteSpace(estado) && estado != "Todos")
                 request.AddQueryParameter("estado", estado);
-
-            var response = client.Get<List<CuentaAhorrosDto>>(request);
-            return response ?? new List<CuentaAhorrosDto>();
+            return clientCuentas.Get<List<CuentaAhorrosDto>>(request)
+                   ?? new List<CuentaAhorrosDto>();
         }
 
         public List<CuentaAhorrosDto> BuscarPorTitular(string nombreTitular)
         {
             var request = new RestRequest("buscar", Method.Get);
             request.AddQueryParameter("titular", nombreTitular);
-            var response = client.Get<List<CuentaAhorrosDto>>(request);
-            return response ?? new List<CuentaAhorrosDto>();
+            return clientCuentas.Get<List<CuentaAhorrosDto>>(request)
+                   ?? new List<CuentaAhorrosDto>();
         }
 
         public CuentaAhorrosDto BuscarPorNumeroCuenta(int numeroCuenta)
         {
-            var request = new RestRequest($"{numeroCuenta}", Method.Get);
-            var response = client.Execute<CuentaAhorrosDto>(request);
-
-            if (!response.IsSuccessful || response.Data == null)
-                return null;
-
-            return response.Data;
+            var response = clientCuentas.Execute<CuentaAhorrosDto>(
+                new RestRequest($"{numeroCuenta}", Method.Get));
+            return response.IsSuccessful ? response.Data : null;
         }
 
         public bool EliminarLogico(int numeroCuenta)
         {
-            var request = new RestRequest($"{numeroCuenta}", Method.Delete);
-            var response = client.Execute(request);
-
+            var response = clientCuentas.Execute(
+                new RestRequest($"{numeroCuenta}", Method.Delete));
             if (!response.IsSuccessful)
             {
                 MessageBox.Show("Error al eliminar cuenta: " + response.Content,
@@ -193,8 +214,7 @@ namespace WayBankClient.service
         {
             var request = new RestRequest($"{numeroCuenta}", Method.Put);
             request.AddJsonBody(cuentaEditada);
-            var response = client.Execute(request);
-
+            var response = clientCuentas.Execute(request);
             if (!response.IsSuccessful)
             {
                 MessageBox.Show("Error al actualizar cuenta: " + response.Content,
@@ -206,30 +226,38 @@ namespace WayBankClient.service
 
         public void Healthcheck()
         {
-            var request = new RestRequest("healthcheck", Method.Get);
-            var response = client.Execute(request);
-
+            var response = clientCuentas.Execute(
+                new RestRequest("healthcheck", Method.Get));
             if (response.IsSuccessful)
-            {
                 MessageBox.Show(response.Content, "Estado del servidor",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
             else
-            {
-                MessageBox.Show("No se pudo conectar con el servidor.",
+                MessageBox.Show("No se pudo conectar con MS-CuentaAhorros (8080).",
                     "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
         }
 
-        // ============ CRUD Movimientos ============
+        // ================================================================
+        // CRUD Movimientos → MS-Movimiento (8081)
+        //
+        // Cambios respecto a la versión anterior (todo en 8080):
+        //   POST   /cuentas/{n}/movimientos → POST   /movimientos  (numeroCuenta en body)
+        //   GET    /cuentas/{n}/movimientos → GET    /movimientos/cuenta/{n}
+        //   GET    /cuentas/movimientos     → GET    /movimientos
+        //   GET    /cuentas/{n}/mov/{id}   → GET    /movimientos/{id}
+        //   PUT    /cuentas/{n}/mov/{id}   → PUT    /movimientos/{id}
+        //   DELETE /cuentas/{n}/mov/{id}   → DELETE /movimientos/{id}
+        // ================================================================
 
+        /// <summary>
+        /// Registra un nuevo movimiento.
+        /// Llama a MS-Movimiento (8081), que a su vez valida la cuenta en MS-CuentaAhorros (8080).
+        /// Intercomunicación entre microservicios — transparente para el cliente.
+        /// </summary>
         public bool AgregarMovimiento(int numeroCuenta, double monto, string tipo)
         {
-            var request = new RestRequest($"{numeroCuenta}/movimientos", Method.Post);
-            var datos = new { monto = monto, tipo = tipo.ToUpper() };
-            request.AddJsonBody(datos);
-            var response = client.Execute(request);
-
+            var request = new RestRequest("", Method.Post);
+            request.AddJsonBody(new { numeroCuenta, monto, tipo = tipo.ToUpper() });
+            var response = clientMovimientos.Execute(request);
             if (!response.IsSuccessful)
             {
                 MessageBox.Show("Error al agregar movimiento: " + response.Content,
@@ -241,18 +269,18 @@ namespace WayBankClient.service
 
         public List<MovimientoDto> ListarMovimientos(int numeroCuenta)
         {
-            var request = new RestRequest($"{numeroCuenta}/movimientos", Method.Get);
-            var response = client.Get<List<MovimientoDto>>(request);
-            return response ?? new List<MovimientoDto>();
+            return clientMovimientos.Get<List<MovimientoDto>>(
+                new RestRequest($"cuenta/{numeroCuenta}", Method.Get))
+                ?? new List<MovimientoDto>();
         }
 
         public List<MovimientoDto> ListarTodosMovimientos()
         {
-            var request = new RestRequest("movimientos", Method.Get);
             try
             {
-                var response = client.Get<List<MovimientoDto>>(request);
-                return response ?? new List<MovimientoDto>();
+                return clientMovimientos.Get<List<MovimientoDto>>(
+                    new RestRequest("", Method.Get))
+                    ?? new List<MovimientoDto>();
             }
             catch (Exception ex)
             {
@@ -264,19 +292,18 @@ namespace WayBankClient.service
 
         public MovimientoDto BuscarMovimientoPorId(int numeroCuenta, int id)
         {
-            var request = new RestRequest($"{numeroCuenta}/movimientos/{id}", Method.Get);
-            var response = client.Execute<MovimientoDto>(request);
-            if (!response.IsSuccessful || response.Data == null)
-                return null;
-            return response.Data;
+            // numeroCuenta ya no es parte de la URL en MS-Movimiento
+            var response = clientMovimientos.Execute<MovimientoDto>(
+                new RestRequest($"{id}", Method.Get));
+            return response.IsSuccessful ? response.Data : null;
         }
 
         public bool ActualizarMovimiento(int numeroCuenta, int id, double monto, string tipo)
         {
-            var request = new RestRequest($"{numeroCuenta}/movimientos/{id}", Method.Put);
-            var datos = new { monto = monto, tipo = tipo.ToUpper() };
-            request.AddJsonBody(datos);
-            var response = client.Execute(request);
+            var request = new RestRequest($"{id}", Method.Put);
+            // Incluir numeroCuenta en el body para que MS-Movimiento pueda re-validar si cambia
+            request.AddJsonBody(new { numeroCuenta, monto, tipo = tipo.ToUpper() });
+            var response = clientMovimientos.Execute(request);
             if (!response.IsSuccessful)
             {
                 MessageBox.Show("Error al actualizar movimiento: " + response.Content,
@@ -288,8 +315,8 @@ namespace WayBankClient.service
 
         public bool EliminarMovimiento(int numeroCuenta, int id)
         {
-            var request = new RestRequest($"{numeroCuenta}/movimientos/{id}", Method.Delete);
-            var response = client.Execute(request);
+            var response = clientMovimientos.Execute(
+                new RestRequest($"{id}", Method.Delete));
             if (!response.IsSuccessful)
             {
                 MessageBox.Show("Error al eliminar movimiento: " + response.Content,
@@ -297,6 +324,23 @@ namespace WayBankClient.service
                 return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// Consulta personalizada #1 — JOIN @ManyToOne entre MOVIMIENTO y CUENTA_AHORROS.
+        /// Devuelve movimientos con el titular de la cuenta (campo de Tabla A).
+        /// GET /movimientos/filtrar?numeroCuenta=X&tipo=Y en MS-Movimiento (8081).
+        /// </summary>
+        public List<MovimientoConTitularDto> FiltrarMovimientosConTitular(
+            int numeroCuenta, string tipo)
+        {
+            var request = new RestRequest("filtrar", Method.Get);
+            if (numeroCuenta > 0)
+                request.AddQueryParameter("numeroCuenta", numeroCuenta.ToString());
+            if (!string.IsNullOrWhiteSpace(tipo) && tipo != "Todos")
+                request.AddQueryParameter("tipo", tipo.ToUpper());
+            return clientMovimientos.Get<List<MovimientoConTitularDto>>(request)
+                   ?? new List<MovimientoConTitularDto>();
         }
     }
 }

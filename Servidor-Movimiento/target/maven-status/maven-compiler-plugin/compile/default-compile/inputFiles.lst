@@ -1,0 +1,10 @@
+/Users/jaiderclavijo/Downloads/Empresariales-main/Servidor-Movimiento/src/main/java/com/jacs/movimientoservice/MovimientoServiceApplication.java
+/Users/jaiderclavijo/Downloads/Empresariales-main/Servidor-Movimiento/src/main/java/com/jacs/movimientoservice/client/CuentaAhorrosClient.java
+/Users/jaiderclavijo/Downloads/Empresariales-main/Servidor-Movimiento/src/main/java/com/jacs/movimientoservice/controller/MovimientoController.java
+/Users/jaiderclavijo/Downloads/Empresariales-main/Servidor-Movimiento/src/main/java/com/jacs/movimientoservice/dto/CuentaAhorrosDTO.java
+/Users/jaiderclavijo/Downloads/Empresariales-main/Servidor-Movimiento/src/main/java/com/jacs/movimientoservice/dto/MovimientoConTitularDTO.java
+/Users/jaiderclavijo/Downloads/Empresariales-main/Servidor-Movimiento/src/main/java/com/jacs/movimientoservice/model/CuentaAhorros.java
+/Users/jaiderclavijo/Downloads/Empresariales-main/Servidor-Movimiento/src/main/java/com/jacs/movimientoservice/model/Movimiento.java
+/Users/jaiderclavijo/Downloads/Empresariales-main/Servidor-Movimiento/src/main/java/com/jacs/movimientoservice/observer/SseService.java
+/Users/jaiderclavijo/Downloads/Empresariales-main/Servidor-Movimiento/src/main/java/com/jacs/movimientoservice/repository/MovimientoRepository.java
+/Users/jaiderclavijo/Downloads/Empresariales-main/Servidor-Movimiento/src/main/java/com/jacs/movimientoservice/service/MovimientoService.java

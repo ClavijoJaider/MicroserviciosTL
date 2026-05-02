@@ -1,5 +1,6 @@
 package com.jacs.proyectomicroservicios.repository;
 
+import com.jacs.proyectomicroservicios.dto.MovimientoConTitularDTO;
 import com.jacs.proyectomicroservicios.model.Movimiento;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -12,7 +13,10 @@ import java.util.List;
 /**
  * Repositorio Spring Data JPA para Movimiento.
  *
- * Incluye filtros avanzados por tipo, rango de fecha y cuenta.
+ * TERCER PROTOTIPO — dos consultas personalizadas obligatorias:
+ *   1. {@link #filtrarConTitular} — JOIN @ManyToOne: devuelve Movimiento + titular
+ *      de CuentaAhorros. Cumple: "Tabla B muestra atributos + FK + atributo de Tabla A".
+ *   2. {@link #filtrar} — filtro combinado avanzado (cuenta, tipo, fechas).
  */
 @Repository
 public interface MovimientoRepository extends JpaRepository<Movimiento, Integer> {
@@ -35,30 +39,21 @@ public interface MovimientoRepository extends JpaRepository<Movimiento, Integer>
 
     // ====== Filtros por rango de fecha ======
 
-    /**
-     * Movimientos de una cuenta dentro de un rango de fechas, ordenados por fecha desc.
-     */
+    /** Movimientos de una cuenta dentro de un rango de fechas. */
     List<Movimiento> findByNumeroCuentaAndFechaMovimientoBetweenOrderByFechaMovimientoDesc(
-            int numeroCuenta,
-            LocalDateTime desde,
-            LocalDateTime hasta
-    );
+            int numeroCuenta, LocalDateTime desde, LocalDateTime hasta);
 
-    /**
-     * Todos los movimientos dentro de un rango de fechas (sin filtro de cuenta).
-     */
+    /** Todos los movimientos dentro de un rango de fechas. */
     List<Movimiento> findByFechaMovimientoBetweenOrderByFechaMovimientoDesc(
-            LocalDateTime desde,
-            LocalDateTime hasta
-    );
+            LocalDateTime desde, LocalDateTime hasta);
 
     // ====== Filtro combinado avanzado (JPQL) ======
 
     /**
-     * Filtro combinado con todos los parámetros opcionales:
-     *   - numeroCuenta: si es null o 0, no filtra por cuenta
-     *   - tipo: si es null o vacío, no filtra por tipo
-     *   - desde / hasta: si son null, no filtra por fecha
+     * Filtro combinado con todos los parámetros opcionales.
+     *   numeroCuenta=0 → sin filtro de cuenta.
+     *   tipo=null      → sin filtro de tipo.
+     *   desde/hasta=null → sin límite de fecha.
      */
     @Query("SELECT m FROM Movimiento m WHERE " +
            "(:numeroCuenta = 0 OR m.numeroCuenta = :numeroCuenta) AND " +
@@ -70,6 +65,32 @@ public interface MovimientoRepository extends JpaRepository<Movimiento, Integer>
             @Param("numeroCuenta") int numeroCuenta,
             @Param("tipo")         String tipo,
             @Param("desde")        LocalDateTime desde,
-            @Param("hasta")        LocalDateTime hasta
-    );
+            @Param("hasta")        LocalDateTime hasta);
+
+    // ====== CONSULTA PERSONALIZADA #1 — TERCER PROTOTIPO ======
+
+    /**
+     * JOIN con CuentaAhorros vía relación @ManyToOne (m.cuenta).
+     *
+     * Devuelve {@link MovimientoConTitularDTO}:
+     *   • Todos los atributos de MOVIMIENTO (id, fechaMovimiento, monto, tipo)
+     *   • FK: numeroCuenta
+     *   • Atributo de Tabla A: titular (CUENTA_AHORROS.TITULAR)
+     *
+     * Parámetros opcionales: numeroCuenta=0 y tipo=null desactivan su filtro.
+     * Usado por: GET /cuentas/movimientos/filtrar
+     */
+    @Query("SELECT new com.jacs.proyectomicroservicios.dto.MovimientoConTitularDTO(" +
+           "    m.id, m.fechaMovimiento, m.monto, m.tipo, m.numeroCuenta, c.titular) " +
+           "FROM Movimiento m JOIN m.cuenta c " +
+           "WHERE (:numeroCuenta = 0 OR m.numeroCuenta = :numeroCuenta) " +
+           "  AND (:tipo IS NULL OR m.tipo = :tipo) " +
+           "  AND (:desde IS NULL OR m.fechaMovimiento >= :desde) " +
+           "  AND (:hasta IS NULL OR m.fechaMovimiento <= :hasta) " +
+           "ORDER BY m.fechaMovimiento DESC")
+    List<MovimientoConTitularDTO> filtrarConTitular(
+            @Param("numeroCuenta") int numeroCuenta,
+            @Param("tipo")         String tipo,
+            @Param("desde")        LocalDateTime desde,
+            @Param("hasta")        LocalDateTime hasta);
 }
