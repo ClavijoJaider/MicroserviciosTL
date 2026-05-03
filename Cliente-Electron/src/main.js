@@ -60,7 +60,8 @@ class CuentaObserver {
   notificar(evento, data) {
     this.observadores.forEach(o => o.onCambio && o.onCambio(evento, data));
     // Propagar a todas las ventanas Electron (IPC renderer)
-    this.vm.notificarTodos('actualizacion', { evento, data });
+    // Usamos "datos" para coincidir con la clave que envía el SseService de Java
+    this.vm.notificarTodos('actualizacion', { evento, datos: data });
   }
 }
 
@@ -136,6 +137,8 @@ class ApiService extends IApiService {
   }
   actualizar(numero, cuenta)    { return this.request('PUT',    '/' + numero, cuenta); }
   eliminar(numero)              { return this.request('DELETE', '/' + numero); }
+  // Consulta personalizada #2 — GET /cuentas/{numero}/resumen (maestro + 2 agregados)
+  resumen(numero)               { return this.request('GET',    '/' + numero + '/resumen'); }
 
   // --- Endpoints de Movimientos (usado por apiMovimientos) ---
   // POST /movimientos  — numeroCuenta va en el body, MS-Movimiento valida en MS-CuentaAhorros (intercomunicación)
@@ -201,6 +204,8 @@ class CuentaService {
     if (r.success) this.obs.notificar('CUENTA_ELIMINADA', n);
     return r;
   }
+  // Consulta personalizada #2 — maestro (CuentaAhorros) + 2 agregados de Movimiento
+  resumen(n) { return this.repo.api.resumen(n); }
 }
 
 class MovimientoService {
@@ -314,6 +319,8 @@ ipcMain.handle('buscar-cuenta',     (e, n)    => cuentaSvc.buscar(n));
 ipcMain.handle('buscar-por-titular',(e, t)    => repoCuentas.buscarPorTitular(t));
 ipcMain.handle('actualizar-cuenta', (e, n, c) => cuentaSvc.actualizar(n, c));
 ipcMain.handle('eliminar-cuenta',   (e, n)    => cuentaSvc.eliminar(n));
+// Consulta personalizada #2 — GET /cuentas/{numero}/resumen
+ipcMain.handle('obtener-resumen',   (e, n)    => cuentaSvc.resumen(n));
 
 // Movimientos → MS-Movimiento (8081)
 // agregar-movimiento: body {numeroCuenta, monto, tipo} — MS-Movimiento valida cuenta en 8080 (intercomunicación)
@@ -346,15 +353,17 @@ function iniciar() {
         { label: 'Buscar',     click: () => vm.crear('buscar',     { width: 360, height: 280, archivo: 'ventanas/buscar.html',     parent: principal, preload: preloadPath }) },
         { label: 'Actualizar', click: () => vm.crear('actualizar', { width: 360, height: 340, archivo: 'ventanas/actualizar.html', parent: principal, preload: preloadPath }) },
         { label: 'Eliminar',   click: () => vm.crear('eliminar',   { width: 360, height: 350, archivo: 'ventanas/eliminar.html',   parent: principal, preload: preloadPath }) },
-        { label: 'Listar',     click: () => vm.crear('listar',     { width: 560, height: 420, archivo: 'ventanas/listar.html',     parent: principal, preload: preloadPath }) }
+        { label: 'Listar',     click: () => vm.crear('listar',     { width: 560, height: 420, archivo: 'ventanas/listar.html',     parent: principal, preload: preloadPath }) },
+        { label: 'Resumen',    click: () => vm.crear('resumen',    { width: 420, height: 360, archivo: 'ventanas/resumen.html',    parent: principal, preload: preloadPath }) }
       ]
     },
     {
       label: 'Movimientos', submenu: [
-        { label: 'Agregar',       click: () => vm.crear('movimientos',  { width: 360, height: 360, archivo: 'ventanas/movimientos.html',  parent: principal, preload: preloadPath }) },
-        { label: 'Ver Historial', click: () => vm.crear('vermovi',      { width: 480, height: 400, archivo: 'ventanas/vermovi.html',      parent: principal, preload: preloadPath }) },
-        { label: 'Editar',        click: () => vm.crear('editarmovi',   { width: 380, height: 370, archivo: 'ventanas/editarmovi.html',   parent: principal, preload: preloadPath }) },
-        { label: 'Eliminar',      click: () => vm.crear('eliminarmovi', { width: 380, height: 390, archivo: 'ventanas/eliminarmovi.html', parent: principal, preload: preloadPath }) }
+        { label: 'Agregar',           click: () => vm.crear('movimientos',  { width: 360, height: 360, archivo: 'ventanas/movimientos.html',  parent: principal, preload: preloadPath }) },
+        { label: 'Ver Historial',     click: () => vm.crear('vermovi',      { width: 480, height: 400, archivo: 'ventanas/vermovi.html',      parent: principal, preload: preloadPath }) },
+        { label: 'Editar',            click: () => vm.crear('editarmovi',   { width: 380, height: 370, archivo: 'ventanas/editarmovi.html',   parent: principal, preload: preloadPath }) },
+        { label: 'Eliminar',          click: () => vm.crear('eliminarmovi', { width: 380, height: 390, archivo: 'ventanas/eliminarmovi.html', parent: principal, preload: preloadPath }) },
+        { label: 'Filtrar con Titular', click: () => vm.crear('filtrarmovi', { width: 560, height: 460, archivo: 'ventanas/filtrarmovi.html', parent: principal, preload: preloadPath }) }
       ]
     },
     { type: 'separator' },

@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Filtrar Movimientos con Titular</title>
+  <style>
+    body { font-family: Arial; background: #F4F6FA; padding: 20px; }
+    h2 { color: #1F4E79; margin-bottom: 6px; }
+    p.sub { font-size: 12px; color: #777; margin-bottom: 16px; }
+    label { display: block; margin: 8px 0 3px; font-weight: bold; font-size: 13px; }
+    input, select { padding: 7px; border: 1px solid #ccc; border-radius: 3px; }
+    .fila { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+    button { background: #1F4E79; color: white; padding: 7px 14px; border: none; cursor: pointer; border-radius: 3px; }
+    button:hover { background: #2E6BAA; }
+    button.sec { background: #666; }
+    button.sec:hover { background: #888; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
+    th, td { padding: 6px 8px; border-bottom: 1px solid #ddd; text-align: left; }
+    th { background: #1F4E79; color: white; }
+    tr:hover { background: #EBF2FF; }
+    .credito { color: #1B8A5A; font-weight: bold; }
+    .debito  { color: #C9102F; font-weight: bold; }
+    #notif { font-size: 11px; color: #1B8A5A; min-height: 14px; margin-bottom: 6px; }
+    #resumen { font-size: 12px; color: #555; margin-top: 6px; }
+    .error { color: #C9102F; font-size: 12px; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h2>🔍 Filtrar Movimientos con Titular</h2>
+  <p class="sub">Consulta personalizada #1 — JOIN MOVIMIENTO ⟶ CUENTA_AHORROS via @ManyToOne (MS-Movimiento 8081)</p>
+
+  <div class="fila">
+    <div>
+      <label>N° de cuenta <small style="font-weight:normal;color:#777">(0 = todas)</small></label>
+      <input type="number" id="numero" value="0" min="0" style="width:130px">
+    </div>
+    <div>
+      <label>Tipo</label>
+      <select id="tipo" style="width:130px">
+        <option value="">Todos</option>
+        <option value="CREDITO">Crédito</option>
+        <option value="DEBITO">Débito</option>
+      </select>
+    </div>
+    <div style="align-self:flex-end">
+      <button onclick="filtrar()">Filtrar</button>
+      <button class="sec" onclick="limpiar()">Limpiar</button>
+    </div>
+  </div>
+
+  <p id="errMsg" class="error"></p>
+  <p id="notif"></p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Cuenta</th>
+        <th>Titular</th>
+        <th>Fecha</th>
+        <th>Tipo</th>
+        <th>Monto</th>
+      </tr>
+    </thead>
+    <tbody id="tabla"></tbody>
+  </table>
+  <p id="resumen"></p>
+
+  <script>
+    async function filtrar() {
+      const errMsg = document.getElementById('errMsg');
+      errMsg.textContent = '';
+
+      const num  = parseInt(document.getElementById('numero').value) || 0;
+      const tipo = document.getElementById('tipo').value;
+
+      try {
+        const r = await window.api.filtrarMovimientos(num, tipo);
+        if (r.success) {
+          dibujar(r.data || []);
+        } else {
+          errMsg.textContent = '✗ ' + (r.error || 'Error al consultar');
+          document.getElementById('tabla').innerHTML = '';
+          document.getElementById('resumen').textContent = '';
+        }
+      } catch (e) { errMsg.textContent = '✗ Error: ' + e.message; }
+    }
+
+    function dibujar(lista) {
+      const tbody   = document.getElementById('tabla');
+      const resumen = document.getElementById('resumen');
+
+      if (!lista || lista.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999">Sin resultados</td></tr>';
+        resumen.textContent = '';
+        return;
+      }
+
+      tbody.innerHTML = lista.map(m => {
+        const cls    = m.tipo === 'CREDITO' ? 'credito' : 'debito';
+        const sim    = m.tipo === 'CREDITO' ? '+' : '-';
+        const fecha  = m.fechaMovimiento ? new Date(m.fechaMovimiento).toLocaleString('es-CO') : '-';
+        const titular = m.titularCuenta || m.titular || '-';
+        return `<tr>
+          <td>${m.id}</td>
+          <td>${m.numeroCuenta}</td>
+          <td>${titular}</td>
+          <td>${fecha}</td>
+          <td class="${cls}">${m.tipo}</td>
+          <td class="${cls}">${sim}$${Number(m.monto).toLocaleString('es-CO')}</td>
+        </tr>`;
+      }).join('');
+
+      const creditos = lista.filter(m => m.tipo === 'CREDITO').reduce((s, m) => s + m.monto, 0);
+      const debitos  = lista.filter(m => m.tipo === 'DEBITO').reduce((s, m) => s + m.monto, 0);
+      resumen.innerHTML =
+        `Total: <strong>${lista.length}</strong> resultado(s) &nbsp;|&nbsp; ` +
+        `Créditos: <span class="credito">+$${creditos.toLocaleString('es-CO')}</span> &nbsp;|&nbsp; ` +
+        `Débitos: <span class="debito">-$${debitos.toLocaleString('es-CO')}</span>`;
+    }
+
+    function limpiar() {
+      document.getElementById('numero').value = '0';
+      document.getElementById('tipo').value   = '';
+      document.getElementById('tabla').innerHTML = '';
+      document.getElementById('resumen').textContent = '';
+      document.getElementById('errMsg').textContent  = '';
+      document.getElementById('notif').textContent   = '';
+    }
+
+    // ============== OBSERVER ==============
+    // Recarga automáticamente cuando se crea, edita o elimina un movimiento
+    window.api.onActualizacion((evt) => {
+      const esMov = evt.evento === 'MOVIMIENTO_CREADO'
+                 || evt.evento === 'MOVIMIENTO_ACTUALIZADO'
+                 || evt.evento === 'MOVIMIENTO_ELIMINADO';
+      if (esMov && document.getElementById('tabla').innerHTML !== '') {
+        mostrarNotif('Movimiento modificado — actualizando lista...');
+        filtrar();
+      }
+    });
+
+    function mostrarNotif(msg) {
+      const d = document.getElementById('notif');
+      d.textContent = '● ' + msg;
+      setTimeout(() => { d.textContent = ''; }, 4000);
+    }
+
+    // Cargar todos al abrir
+    filtrar();
+  </script>
+</body>
+</html>

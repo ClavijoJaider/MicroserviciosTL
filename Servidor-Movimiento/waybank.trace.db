@@ -1,9 +1,0 @@
-2026-05-02 11:07:56.071052-05:00 jdbc[3]: exception
-org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "MOVIMIENTO" not found (this database is empty); SQL statement:
-select m1_0.id,m1_0.numero_cuenta,m1_0.fecha_movimiento,m1_0.monto,m1_0.tipo from movimiento m1_0 [42104-240]
-2026-05-02 11:07:56.142667-05:00 jdbc[3]: exception
-org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "MOVIMIENTO" not found (this database is empty); SQL statement:
-select m1_0.id,m1_0.fecha_movimiento,m1_0.monto,m1_0.tipo,m1_0.numero_cuenta,c1_0.titular from movimiento m1_0 join cuenta_ahorros c1_0 on c1_0.numero_cuenta=m1_0.numero_cuenta where (?=0 or m1_0.numero_cuenta=?) and (? is null or m1_0.tipo=?) and (? is null or m1_0.fecha_movimiento>=?) and (? is null or m1_0.fecha_movimiento<=?) order by m1_0.fecha_movimiento desc [42104-240]
-2026-05-02 11:08:27.426876-05:00 jdbc[3]: exception
-org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "MOVIMIENTO" not found (this database is empty); SQL statement:
-select m1_0.id,m1_0.numero_cuenta,m1_0.fecha_movimiento,m1_0.monto,m1_0.tipo from movimiento m1_0 [42104-240]

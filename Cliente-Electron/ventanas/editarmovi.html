@@ -141,7 +141,7 @@
       if (evt.evento === 'MOVIMIENTO_ACTUALIZADO' || evt.evento === 'MOVIMIENTO_ELIMINADO') {
         if (document.getElementById('formEdicion').style.display === 'block') {
           // Refrescar si estamos editando el movimiento que cambió
-          if (movActual && evt.datos && evt.datos.movimientoId === movActual.id) {
+          if (movActual && evt.datos && evt.datos.id === movActual.id) {
             buscar();
           }
         }

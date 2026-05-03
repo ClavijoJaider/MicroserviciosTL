@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('api', {
   buscarPorTitular: (titular)             => ipcRenderer.invoke('buscar-por-titular', titular),
   actualizarCuenta: (numero, cuenta)      => ipcRenderer.invoke('actualizar-cuenta', numero, cuenta),
   eliminarCuenta:   (numero)              => ipcRenderer.invoke('eliminar-cuenta', numero),
+  // Consulta personalizada #2: datos del maestro + totalMovimientos + totalCreditos
+  obtenerResumen:   (numero)              => ipcRenderer.invoke('obtener-resumen', numero),
 
   // ============ Movimientos — MS-Movimiento (8081) ============
   // POST /movimientos — body: {numeroCuenta, monto, tipo}

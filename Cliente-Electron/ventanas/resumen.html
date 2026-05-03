@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Resumen de Cuenta</title>
+  <style>
+    body { font-family: Arial; background: #F4F6FA; padding: 20px; }
+    h2 { color: #1F4E79; margin-bottom: 6px; }
+    p.sub { font-size: 12px; color: #777; margin-bottom: 16px; }
+    label { display: block; margin: 8px 0 3px; font-weight: bold; font-size: 13px; }
+    input { padding: 7px; border: 1px solid #ccc; border-radius: 3px; }
+    .fila { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+    button { background: #1F4E79; color: white; padding: 7px 14px; border: none; cursor: pointer; border-radius: 3px; }
+    button:hover { background: #2E6BAA; }
+    .tarjeta { display: none; background: white; border: 1px solid #C5D8F0; border-radius: 6px; padding: 16px; margin-top: 14px; }
+    .fila-dato { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #EEE; font-size: 13px; }
+    .fila-dato:last-child { border-bottom: none; }
+    .etiq { color: #555; }
+    .valor { font-weight: bold; color: #1F4E79; }
+    .agregado .valor { color: #1B8A5A; font-size: 14px; }
+    .credito-val { color: #1B8A5A; }
+    h3 { font-size: 14px; color: #1F4E79; margin: 12px 0 6px; }
+    .sep { border-top: 2px solid #1F4E79; margin: 10px 0; }
+    .error { color: #C9102F; font-size: 12px; margin-top: 6px; }
+    #notif { font-size: 11px; color: #1B8A5A; min-height: 14px; }
+    .badge { display: inline-block; background: #1F4E79; color: white; border-radius: 10px; padding: 1px 8px; font-size: 11px; }
+    .badge.inactivo { background: #999; }
+  </style>
+</head>
+<body>
+  <h2>📊 Resumen de Cuenta</h2>
+  <p class="sub">Consulta personalizada #2 — Datos del maestro + 2 agregados del detalle (vía MS-CuentaAhorros 8080)</p>
+
+  <div class="fila">
+    <input type="number" id="numero" placeholder="N° de cuenta (ej: 1001)" style="width:200px">
+    <button onclick="consultar()">Consultar</button>
+  </div>
+  <p id="errMsg" class="error"></p>
+  <p id="notif"></p>
+
+  <div class="tarjeta" id="tarjeta">
+    <h3>Datos del Maestro — CUENTA_AHORROS</h3>
+    <div class="fila-dato">
+      <span class="etiq">N° de cuenta:</span>
+      <span class="valor" id="rNumeroCuenta"></span>
+    </div>
+    <div class="fila-dato">
+      <span class="etiq">Titular:</span>
+      <span class="valor" id="rTitular"></span>
+    </div>
+    <div class="fila-dato">
+      <span class="etiq">Saldo actual:</span>
+      <span class="valor" id="rSaldo"></span>
+    </div>
+    <div class="fila-dato">
+      <span class="etiq">Tasa de interés:</span>
+      <span class="valor" id="rTasa"></span>
+    </div>
+    <div class="fila-dato">
+      <span class="etiq">Estado:</span>
+      <span class="valor" id="rEstado"></span>
+    </div>
+
+    <div class="sep"></div>
+    <h3>Datos del Detalle — MOVIMIENTO (agregados)</h3>
+
+    <div class="fila-dato agregado">
+      <span class="etiq">Total movimientos (COUNT):</span>
+      <span class="valor" id="rTotalMov"></span>
+    </div>
+    <div class="fila-dato agregado">
+      <span class="etiq">Total créditos (SUM CREDITO):</span>
+      <span class="valor credito-val" id="rTotalCred"></span>
+    </div>
+  </div>
+
+  <script>
+    let numeroActual = null;
+
+    async function consultar() {
+      const errMsg = document.getElementById('errMsg');
+      errMsg.textContent = '';
+      document.getElementById('tarjeta').style.display = 'none';
+
+      const n = parseInt(document.getElementById('numero').value);
+      if (isNaN(n) || n <= 0) {
+        errMsg.textContent = '✗ Ingrese un número de cuenta válido';
+        return;
+      }
+      numeroActual = n;
+
+      try {
+        const r = await window.api.obtenerResumen(n);
+        if (r.success && r.data) {
+          renderizar(r.data);
+        } else {
+          errMsg.textContent = '✗ ' + (r.error || 'Cuenta no encontrada');
+        }
+      } catch (e) { errMsg.textContent = '✗ Error: ' + e.message; }
+    }
+
+    function renderizar(d) {
+      document.getElementById('rNumeroCuenta').textContent = d.numeroCuenta;
+      document.getElementById('rTitular').textContent      = d.titular;
+      document.getElementById('rSaldo').textContent        = '$' + Number(d.saldo).toLocaleString('es-CO');
+      document.getElementById('rTasa').textContent         = (d.tasaInteres * 100).toFixed(2) + '%';
+      const estadoBadge = `<span class="badge ${d.estado === 'Activo' ? '' : 'inactivo'}">${d.estado}</span>`;
+      document.getElementById('rEstado').innerHTML         = estadoBadge;
+      document.getElementById('rTotalMov').textContent     = d.totalMovimientos + ' movimiento(s)';
+      document.getElementById('rTotalCred').textContent    = '+$' + Number(d.totalCreditos).toLocaleString('es-CO');
+      document.getElementById('tarjeta').style.display     = 'block';
+    }
+
+    // ============== OBSERVER ==============
+    window.api.onActualizacion((evt) => {
+      if (!numeroActual) return;
+      const esCuenta = evt.evento === 'CUENTA_ACTUALIZADA' || evt.evento === 'CUENTA_ELIMINADA';
+      const esMov    = evt.evento === 'MOVIMIENTO_CREADO' || evt.evento === 'MOVIMIENTO_ACTUALIZADO' || evt.evento === 'MOVIMIENTO_ELIMINADO';
+      if ((esCuenta || esMov) && evt.datos && evt.datos.numeroCuenta == numeroActual) {
+        // Refrescar el resumen automáticamente cuando cambia esta cuenta o sus movimientos
+        mostrarNotif('Cambio detectado — actualizando resumen...');
+        consultar();
+      }
+    });
+
+    function mostrarNotif(msg) {
+      const d = document.getElementById('notif');
+      d.textContent = '● ' + msg;
+      setTimeout(() => { d.textContent = ''; }, 4000);
+    }
+  </script>
+</body>
+</html>
