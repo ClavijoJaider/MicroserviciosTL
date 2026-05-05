@@ -142,7 +142,7 @@ class ApiService extends IApiService {
 
   // --- Endpoints de Movimientos (usado por apiMovimientos) ---
   // POST /movimientos  — numeroCuenta va en el body, MS-Movimiento valida en MS-CuentaAhorros (intercomunicación)
-  crearMovimiento(datos)        { return this.request('POST',   '',                dados => datos); }
+  crearMovimiento(datos)        { return this.request('POST',   '', datos); }
   listarMovimientos()           { return this.request('GET',    ''); }
   listarMovimientosCuenta(num)  { return this.request('GET',    '/cuenta/' + num); }
   buscarMovimiento(id)          { return this.request('GET',    '/' + id); }
@@ -353,14 +353,14 @@ function iniciar() {
         { label: 'Buscar',     click: () => vm.crear('buscar',     { width: 360, height: 280, archivo: 'ventanas/buscar.html',     parent: principal, preload: preloadPath }) },
         { label: 'Actualizar', click: () => vm.crear('actualizar', { width: 360, height: 340, archivo: 'ventanas/actualizar.html', parent: principal, preload: preloadPath }) },
         { label: 'Eliminar',   click: () => vm.crear('eliminar',   { width: 360, height: 350, archivo: 'ventanas/eliminar.html',   parent: principal, preload: preloadPath }) },
-        { label: 'Listar',     click: () => vm.crear('listar',     { width: 560, height: 420, archivo: 'ventanas/listar.html',     parent: principal, preload: preloadPath }) },
-        { label: 'Resumen',    click: () => vm.crear('resumen',    { width: 420, height: 360, archivo: 'ventanas/resumen.html',    parent: principal, preload: preloadPath }) }
+        { label: 'Listar',     click: () => vm.crear('listar',     { width: 560, height: 420, archivo: 'ventanas/listar.html',     parent: principal, preload: preloadPath }) }
       ]
     },
     {
       label: 'Movimientos', submenu: [
-        { label: 'Agregar',           click: () => vm.crear('movimientos',  { width: 360, height: 360, archivo: 'ventanas/movimientos.html',  parent: principal, preload: preloadPath }) },
-        { label: 'Ver Historial',     click: () => vm.crear('vermovi',      { width: 480, height: 400, archivo: 'ventanas/vermovi.html',      parent: principal, preload: preloadPath }) },
+        { label: 'Agregar',              click: () => vm.crear('movimientos',  { width: 360, height: 360, archivo: 'ventanas/movimientos.html',  parent: principal, preload: preloadPath }) },
+        { label: 'Buscar Transacción',   click: () => vm.crear('buscarmovi',   { width: 400, height: 350, archivo: 'ventanas/buscarmovi.html',   parent: principal, preload: preloadPath }) },
+        { label: 'Ver Historial',        click: () => vm.crear('vermovi',      { width: 480, height: 400, archivo: 'ventanas/vermovi.html',      parent: principal, preload: preloadPath }) },
         { label: 'Editar',            click: () => vm.crear('editarmovi',   { width: 380, height: 370, archivo: 'ventanas/editarmovi.html',   parent: principal, preload: preloadPath }) },
         { label: 'Eliminar',          click: () => vm.crear('eliminarmovi', { width: 380, height: 390, archivo: 'ventanas/eliminarmovi.html', parent: principal, preload: preloadPath }) },
         { label: 'Filtrar con Titular', click: () => vm.crear('filtrarmovi', { width: 560, height: 460, archivo: 'ventanas/filtrarmovi.html', parent: principal, preload: preloadPath }) }
