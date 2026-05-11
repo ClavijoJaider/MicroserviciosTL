@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Editar Movimiento</title>
+  <style>
+    body { font-family: Arial; background: #F4F6FA; padding: 20px; }
+    h2 { color: #1F4E79; margin-bottom: 15px; }
+    label { display: block; margin: 8px 0 3px; font-weight: bold; font-size: 13px; }
+    input, select { width: 100%; padding: 7px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 3px; }
+    .fila { display: flex; gap: 8px; align-items: center; }
+    button { background: #1F4E79; color: white; padding: 7px 14px; border: none; cursor: pointer; border-radius: 3px; }
+    button:hover { background: #2E6BAA; }
+    button.sec { background: #666; }
+    button.ok-btn { background: #1B8A5A; }
+    button.ok-btn:hover { background: #2AA373; }
+    #infoActual { display: none; background: #EBF2FF; border: 1px solid #90CAF9; border-radius: 5px; padding: 10px; font-size: 13px; margin: 10px 0; }
+    #formEdicion { display: none; }
+    .ok    { color: #1B8A5A; font-weight: bold; margin-top: 8px; }
+    .error { color: #C9102F; margin-top: 6px; font-size: 12px; }
+    #notif { min-height: 18px; font-size: 12px; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <h2>✏️ Editar Movimiento</h2>
+
+  <label>Número de cuenta:</label>
+  <div class="fila">
+    <input type="number" id="numero" placeholder="Ej: 1001" style="width:140px">
+    <label style="margin:0">ID del movimiento:</label>
+    <input type="number" id="idMov" placeholder="Ej: 1" style="width:90px">
+    <button onclick="buscar()">Buscar</button>
+  </div>
+  <p id="errBuscar" class="error"></p>
+
+  <div id="infoActual">
+    <strong>Movimiento encontrado:</strong><br>
+    <span id="infoTexto"></span>
+  </div>
+
+  <div id="formEdicion">
+    <label>Nuevo tipo de movimiento:</label>
+    <select id="tipo">
+      <option value="CREDITO">Depósito (Crédito)</option>
+      <option value="DEBITO">Retiro (Débito)</option>
+    </select>
+
+    <label>Nuevo monto:</label>
+    <input type="number" id="monto" placeholder="Ingrese el monto" min="1">
+
+    <div class="fila" style="margin-top:10px">
+      <button class="ok-btn" onclick="actualizar()">Guardar cambios</button>
+      <button class="sec" onclick="limpiar()">Limpiar</button>
+    </div>
+    <p id="notif"></p>
+  </div>
+
+  <script>
+    let movActual = null;
+    let numeroCuenta = null;
+
+    async function buscar() {
+      const err = document.getElementById('errBuscar');
+      err.textContent = '';
+      document.getElementById('infoActual').style.display = 'none';
+      document.getElementById('formEdicion').style.display = 'none';
+      movActual = null;
+
+      const n = parseInt(document.getElementById('numero').value);
+      const id = parseInt(document.getElementById('idMov').value);
+
+      if (isNaN(n) || n <= 0) { err.textContent = '✗ Número de cuenta inválido'; return; }
+      if (isNaN(id) || id <= 0) { err.textContent = '✗ ID de movimiento inválido'; return; }
+
+      try {
+        const r = await window.api.buscarMovimiento(n, id);
+        if (r.success && r.data) {
+          movActual = r.data;
+          numeroCuenta = n;
+          const fecha = r.data.fechaMovimiento
+            ? new Date(r.data.fechaMovimiento).toLocaleString('es-CO') : '-';
+          document.getElementById('infoTexto').innerHTML =
+            `ID: <strong>${r.data.id}</strong> &nbsp;|&nbsp; ` +
+            `Tipo: <strong>${r.data.tipo}</strong> &nbsp;|&nbsp; ` +
+            `Monto: <strong>$${Number(r.data.monto).toLocaleString('es-CO')}</strong> &nbsp;|&nbsp; ` +
+            `Fecha: ${fecha}`;
+          document.getElementById('infoActual').style.display = 'block';
+          // Pre-llenar con valores actuales
+          document.getElementById('tipo').value = r.data.tipo || 'CREDITO';
+          document.getElementById('monto').value = r.data.monto;
+          document.getElementById('formEdicion').style.display = 'block';
+          document.getElementById('notif').textContent = '';
+        } else {
+          err.textContent = '✗ ' + (r.error || 'Movimiento no encontrado');
+        }
+      } catch (e) { err.textContent = '✗ Error: ' + e.message; }
+    }
+
+    async function actualizar() {
+      if (!movActual) return;
+      const monto = parseFloat(document.getElementById('monto').value);
+      const tipo  = document.getElementById('tipo').value;
+      const notif = document.getElementById('notif');
+      notif.className = '';
+      notif.textContent = '';
+
+      if (isNaN(monto) || monto <= 0) {
+        notif.className = 'error'; notif.textContent = '✗ El monto debe ser mayor a cero'; return;
+      }
+
+      try {
+        const r = await window.api.actualizarMovimiento(numeroCuenta, movActual.id, { monto, tipo });
+        if (r.success) {
+          notif.className = 'ok';
+          notif.textContent = '✓ Movimiento actualizado correctamente';
+          document.getElementById('infoActual').style.display = 'none';
+          document.getElementById('formEdicion').style.display = 'none';
+          movActual = null;
+          document.getElementById('idMov').value = '';
+        } else {
+          notif.className = 'error';
+          notif.textContent = '✗ ' + (r.error || 'Error al actualizar');
+        }
+      } catch (e) { notif.className = 'error'; notif.textContent = '✗ Error: ' + e.message; }
+    }
+
+    function limpiar() {
+      movActual = null;
+      numeroCuenta = null;
+      document.getElementById('numero').value = '';
+      document.getElementById('idMov').value = '';
+      document.getElementById('monto').value = '';
+      document.getElementById('infoActual').style.display = 'none';
+      document.getElementById('formEdicion').style.display = 'none';
+      document.getElementById('errBuscar').textContent = '';
+      document.getElementById('notif').textContent = '';
+    }
+
+    // Observer: actualiza si el servidor notifica un cambio en movimientos
+    window.api.onActualizacion((evt) => {
+      if (evt.evento === 'MOVIMIENTO_ACTUALIZADO' || evt.evento === 'MOVIMIENTO_ELIMINADO') {
+        if (document.getElementById('formEdicion').style.display === 'block') {
+          // Refrescar si estamos editando el movimiento que cambió
+          if (movActual && evt.datos && evt.datos.id === movActual.id) {
+            buscar();
+          }
+        }
+      }
+    });
+  </script>
+</body>
+</html>

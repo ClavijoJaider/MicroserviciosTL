@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Eliminar Movimiento</title>
+  <style>
+    body { font-family: Arial; background: #F4F6FA; padding: 20px; }
+    h2 { color: #C9102F; margin-bottom: 15px; }
+    label { display: block; margin: 8px 0 3px; font-weight: bold; font-size: 13px; }
+    input { padding: 7px; border: 1px solid #ccc; border-radius: 3px; }
+    .fila { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+    button { background: #1F4E79; color: white; padding: 7px 14px; border: none; cursor: pointer; border-radius: 3px; }
+    button:hover { background: #2E6BAA; }
+    button.sec { background: #666; }
+    button.del { background: #C9102F; }
+    button.del:hover { background: #a50d26; }
+    #infoMov { display: none; background: #FFF3CD; border: 1px solid #FFCA28; border-radius: 5px; padding: 12px; margin: 10px 0; font-size: 13px; }
+    .fila-dato { display: flex; padding: 2px 0; }
+    .etiqueta { font-weight: bold; width: 120px; }
+    .advertencia { color: #856404; margin-top: 8px; font-size: 12px; }
+    .ok    { color: #1B8A5A; font-weight: bold; margin-top: 8px; }
+    .error { color: #C9102F; margin-top: 6px; font-size: 12px; }
+    #notif { min-height: 18px; }
+  </style>
+</head>
+<body>
+  <h2>🗑️ Eliminar Movimiento</h2>
+
+  <div class="fila">
+    <div>
+      <label style="margin-bottom:2px">N° de cuenta:</label>
+      <input type="number" id="numero" placeholder="Ej: 1001" style="width:110px">
+    </div>
+    <div>
+      <label style="margin-bottom:2px">ID del movimiento:</label>
+      <input type="number" id="idMov" placeholder="Ej: 1" style="width:90px">
+    </div>
+    <button onclick="buscar()" style="margin-top:18px">Buscar</button>
+  </div>
+  <p id="errBuscar" class="error"></p>
+
+  <div id="infoMov">
+    <strong>Información del movimiento a eliminar:</strong>
+    <div class="fila-dato"><span class="etiqueta">ID:</span><span id="rId"></span></div>
+    <div class="fila-dato"><span class="etiqueta">Fecha:</span><span id="rFecha"></span></div>
+    <div class="fila-dato"><span class="etiqueta">Monto:</span><span id="rMonto"></span></div>
+    <div class="fila-dato"><span class="etiqueta">Tipo:</span><span id="rTipo"></span></div>
+    <div class="fila-dato"><span class="etiqueta">Cuenta:</span><span id="rCuenta"></span></div>
+    <p class="advertencia">⚠ Esta acción revierte el efecto del movimiento en el saldo de la cuenta.</p>
+    <div class="fila" style="margin-top:8px">
+      <button class="del" onclick="eliminar()">Confirmar eliminación</button>
+      <button class="sec" onclick="cancelar()">Cancelar</button>
+    </div>
+  </div>
+
+  <p id="notif"></p>
+
+  <script>
+    let movActual = null;
+    let numeroCuenta = null;
+
+    async function buscar() {
+      const err = document.getElementById('errBuscar');
+      err.textContent = '';
+      document.getElementById('infoMov').style.display = 'none';
+      document.getElementById('notif').textContent = '';
+      movActual = null;
+
+      const n  = parseInt(document.getElementById('numero').value);
+      const id = parseInt(document.getElementById('idMov').value);
+
+      if (isNaN(n) || n <= 0)  { err.textContent = '✗ Número de cuenta inválido'; return; }
+      if (isNaN(id) || id <= 0) { err.textContent = '✗ ID de movimiento inválido'; return; }
+
+      try {
+        const r = await window.api.buscarMovimiento(n, id);
+        if (r.success && r.data) {
+          movActual    = r.data;
+          numeroCuenta = n;
+
+          const fecha = r.data.fechaMovimiento
+            ? new Date(r.data.fechaMovimiento).toLocaleString('es-CO') : '-';
+          document.getElementById('rId').textContent     = r.data.id;
+          document.getElementById('rFecha').textContent  = fecha;
+          document.getElementById('rMonto').textContent  = '$' + Number(r.data.monto).toLocaleString('es-CO');
+          document.getElementById('rTipo').textContent   = r.data.tipo;
+          document.getElementById('rCuenta').textContent = r.data.numeroCuenta || n;
+
+          // Color por tipo
+          const tipoEl = document.getElementById('rTipo');
+          tipoEl.style.color = r.data.tipo === 'CREDITO' ? '#1B8A5A' : '#C9102F';
+          tipoEl.style.fontWeight = 'bold';
+
+          document.getElementById('infoMov').style.display = 'block';
+        } else {
+          err.textContent = '✗ ' + (r.error || 'Movimiento no encontrado');
+        }
+      } catch (e) { err.textContent = '✗ Error: ' + e.message; }
+    }
+
+    async function eliminar() {
+      if (!movActual) return;
+
+      const confirmar = confirm(
+        `¿Confirma que desea eliminar el movimiento ${movActual.id}?\n` +
+        `Monto: $${Number(movActual.monto).toLocaleString('es-CO')} | Tipo: ${movActual.tipo}\n\n` +
+        'Esta acción revertirá el efecto en el saldo de la cuenta.'
+      );
+      if (!confirmar) return;
+
+      const notif = document.getElementById('notif');
+      try {
+        const r = await window.api.eliminarMovimiento(numeroCuenta, movActual.id);
+        if (r.success) {
+          notif.className = 'ok';
+          notif.textContent = `✓ Movimiento ${movActual.id} eliminado correctamente`;
+          document.getElementById('infoMov').style.display = 'none';
+          document.getElementById('numero').value = '';
+          document.getElementById('idMov').value  = '';
+          movActual = null;
+        } else {
+          notif.className = 'error';
+          notif.textContent = '✗ ' + (r.error || 'Error al eliminar');
+        }
+      } catch (e) { notif.className = 'error'; notif.textContent = '✗ Error: ' + e.message; }
+    }
+
+    function cancelar() {
+      movActual = null;
+      document.getElementById('numero').value = '';
+      document.getElementById('idMov').value  = '';
+      document.getElementById('infoMov').style.display = 'none';
+      document.getElementById('errBuscar').textContent = '';
+      document.getElementById('notif').textContent = '';
+    }
+  </script>
+</body>
+</html>

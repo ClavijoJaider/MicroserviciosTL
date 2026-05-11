@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Buscar Movimiento</title>
+  <style>
+    body { font-family: Arial; background: #F4F6FA; padding: 20px; }
+    h2 { color: #1F4E79; margin-bottom: 15px; }
+    label { display: block; margin: 8px 0 3px; font-weight: bold; font-size: 13px; }
+    input { padding: 7px; border: 1px solid #ccc; border-radius: 3px; width: 200px; }
+    .fila { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+    .fila label { min-width: 150px; margin: 0; }
+    button { background: #1F4E79; color: white; padding: 7px 14px; border: none; cursor: pointer; border-radius: 3px; }
+    button:hover { background: #2E6BAA; }
+    button.sec { background: #666; }
+    .botones { display: flex; gap: 8px; margin-top: 10px; justify-content: flex-end; max-width: 370px; }
+    #notif { font-size: 12px; color: #C9102F; min-height: 16px; margin: 6px 0; }
+    #panel { display: none; background: #E8F4FF; border: 1px solid #90C4E8; border-radius: 4px; padding: 14px 18px; margin-top: 14px; max-width: 370px; }
+    #panel p { margin: 4px 0; font-size: 13px; font-family: Arial; }
+    .lbl { color: #444; }
+    .credito { color: #1B8A5A; font-weight: bold; }
+    .debito  { color: #C9102F; font-weight: bold; }
+    .ok { color: #1B8A5A; }
+  </style>
+</head>
+<body>
+  <h2>Buscar Movimiento por ID</h2>
+
+  <div class="fila">
+    <label>Numero de cuenta:</label>
+    <input type="number" id="numero" placeholder="Ej: 1001">
+  </div>
+  <div class="fila">
+    <label>ID del movimiento:</label>
+    <input type="number" id="idMov" placeholder="Ej: 5">
+  </div>
+
+  <div id="notif"></div>
+
+  <div class="botones">
+    <button onclick="limpiar()" class="sec">Limpiar</button>
+    <button id="btnBuscar" onclick="buscar()">Buscar</button>
+  </div>
+
+  <div id="panel">
+    <p><span class="lbl">ID:</span> <span id="resId"></span></p>
+    <p><span class="lbl">Fecha:</span> <span id="resFecha"></span></p>
+    <p><span class="lbl">Monto:</span> <span id="resMonto"></span></p>
+    <p><span class="lbl">Tipo:</span> <span id="resTipo"></span></p>
+    <p><span class="lbl">Cuenta:</span> <span id="resCuenta"></span></p>
+    <p><span class="lbl">Titular:</span> <span id="resTitular"></span></p>
+  </div>
+
+  <script>
+    // Guarda el ultimo movimiento mostrado para refrescarlo via SSE.
+    let movActual = null;
+
+    function setNotif(msg, ok = false) {
+      const n = document.getElementById('notif');
+      n.textContent = msg || '';
+      n.className = ok ? 'ok' : '';
+    }
+
+    async function buscar() {
+      setNotif('');
+      const panel = document.getElementById('panel');
+      panel.style.display = 'none';
+      movActual = null;
+
+      const numero = parseInt(document.getElementById('numero').value, 10);
+      const id     = parseInt(document.getElementById('idMov').value, 10);
+
+      if (!Number.isFinite(numero) || numero <= 0) {
+        setNotif('Ingrese un numero de cuenta valido');
+        return;
+      }
+      if (!Number.isFinite(id) || id <= 0) {
+        setNotif('Ingrese un ID de movimiento valido');
+        return;
+      }
+
+      // La API del preload se llama `buscarMovimiento(numero, id)`.
+      // El handler de main.js ignora `numero` y consulta /movimientos/{id},
+      // pero conservamos el campo en el form para validar coherencia.
+      let r;
+      try {
+        r = await window.api.buscarMovimiento(numero, id);
+      } catch (e) {
+        setNotif('Error de conexion: ' + (e && e.message ? e.message : e));
+        return;
+      }
+
+      if (!r || r.success === false) {
+        setNotif((r && r.error) ? r.error : 'Movimiento no encontrado');
+        return;
+      }
+
+      const m = r.data;
+      if (!m || !m.id) {
+        setNotif('Movimiento no encontrado');
+        return;
+      }
+
+      if (m.numeroCuenta !== numero) {
+        setNotif('El movimiento ' + m.id +
+                 ' pertenece a la cuenta ' + m.numeroCuenta +
+                 ', no a la ' + numero + '.');
+        return;
+      }
+
+      movActual = m;
+      render(m);
+      setNotif('Movimiento encontrado', true);
+    }
+
+    function render(m) {
+      document.getElementById('resId').textContent = m.id;
+      document.getElementById('resFecha').textContent = m.fechaMovimiento
+        ? new Date(m.fechaMovimiento).toLocaleString('es-CO') : '-';
+      document.getElementById('resMonto').textContent =
+        '$' + Number(m.monto).toLocaleString('es-CO');
+
+      const tipoEl = document.getElementById('resTipo');
+      tipoEl.textContent = m.tipo;
+      tipoEl.className = m.tipo === 'CREDITO' ? 'credito' : 'debito';
+
+      document.getElementById('resCuenta').textContent = m.numeroCuenta;
+
+      // Titular lo pedimos de forma asincrona via la API de cuentas.
+      const tit = document.getElementById('resTitular');
+      tit.textContent = '...';
+      window.api.buscarCuenta(m.numeroCuenta).then(rc => {
+        tit.textContent = (rc && rc.success && rc.data && rc.data.titular)
+          ? rc.data.titular : '(no disponible)';
+      }).catch(() => { tit.textContent = '(no disponible)'; });
+
+      document.getElementById('panel').style.display = 'block';
+    }
+
+    function limpiar() {
+      movActual = null;
+      document.getElementById('numero').value = '';
+      document.getElementById('idMov').value = '';
+      document.getElementById('panel').style.display = 'none';
+      setNotif('');
+    }
+
+    // Permite buscar con Enter sin perder el handler que ya registramos
+    // arriba sobre los botones (no duplica listeners en cada render).
+    document.getElementById('idMov').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') buscar();
+    });
+    document.getElementById('numero').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') buscar();
+    });
+
+    // ============== OBSERVER PATTERN ==============
+    // Si el movimiento que estamos visualizando es editado o eliminado en
+    // otra ventana, el backend envia el evento por SSE y el preload lo
+    // reenvia por IPC al canal 'actualizacion'. Aqui recargamos.
+    window.api.onActualizacion((evt) => {
+      if (!movActual || !evt) return;
+      const ev = evt.evento;
+      const d  = evt.datos || {};
+      if (ev === 'MOVIMIENTO_ACTUALIZADO' && d.id === movActual.id) {
+        buscar();
+      } else if (ev === 'MOVIMIENTO_ELIMINADO' && d.id === movActual.id) {
+        limpiar();
+        setNotif('El movimiento fue eliminado en otra ventana.');
+      }
+    });
+  </script>
+</body>
+</html>

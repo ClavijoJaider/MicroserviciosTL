@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Buscar Cuenta</title>
+  <style>
+    body { font-family: Arial; background: #F4F6FA; padding: 20px; }
+    h2 { color: #1F4E79; margin-bottom: 15px; }
+    label { display: block; margin: 8px 0 3px; font-weight: bold; font-size: 13px; }
+    input, select { width: 100%; padding: 7px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 3px; }
+    .fila { display: flex; gap: 8px; }
+    button { background: #1F4E79; color: white; padding: 9px 20px; border: none; cursor: pointer; border-radius: 3px; margin-top: 10px; }
+    button:hover { background: #2E6BAA; }
+    .card { background: white; border: 1px solid #ddd; border-radius: 5px; padding: 15px; margin-top: 15px; display: none; }
+    .card .fila-dato { display: flex; padding: 5px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+    .card .fila-dato .etiqueta { font-weight: bold; width: 140px; color: #555; }
+    .error { color: #C9102F; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h2>Buscar Cuenta de Ahorros</h2>
+
+  <label>Criterio de búsqueda:</label>
+  <select id="criterio">
+    <option value="numero">Número de cuenta</option>
+    <option value="titular">Nombre del titular</option>
+  </select>
+
+  <label>Valor a buscar:</label>
+  <div class="fila">
+    <input type="text" id="valor" placeholder="Ingrese el valor">
+    <button onclick="buscar()" style="margin-top:0; white-space:nowrap">Buscar</button>
+  </div>
+
+  <p id="error" class="error"></p>
+
+  <div class="card" id="card">
+    <div class="fila-dato"><span class="etiqueta">N° Cuenta:</span><span id="rNumero"></span></div>
+    <div class="fila-dato"><span class="etiqueta">Titular:</span><span id="rTitular"></span></div>
+    <div class="fila-dato"><span class="etiqueta">Saldo:</span><span id="rSaldo"></span></div>
+    <div class="fila-dato"><span class="etiqueta">Tasa de interés:</span><span id="rTasa"></span></div>
+    <div class="fila-dato"><span class="etiqueta">Estado:</span><span id="rEstado"></span></div>
+    <div class="fila-dato"><span class="etiqueta">Fecha apertura:</span><span id="rFecha"></span></div>
+  </div>
+
+  <script>
+    async function buscar() {
+      const criterio = document.getElementById('criterio').value;
+      const valor = document.getElementById('valor').value.trim();
+      const err = document.getElementById('error');
+      err.textContent = '';
+      document.getElementById('card').style.display = 'none';
+
+      if (!valor) { err.textContent = '✗ Ingrese un valor para buscar'; return; }
+
+      try {
+        if (criterio === 'numero') {
+          const n = parseInt(valor);
+          if (isNaN(n)) { err.textContent = '✗ Ingrese un número válido'; return; }
+          const r = await window.api.buscarCuenta(n);
+          if (r.success && r.data) {
+            mostrar(r.data);
+          } else {
+            err.textContent = '✗ ' + (r.error || 'Cuenta no encontrada');
+          }
+        } else {
+          const r = await window.api.buscarPorTitular(valor);
+          if (r.success && r.data && r.data.length > 0) {
+            mostrar(r.data[0]);
+            if (r.data.length > 1) err.textContent = 'ℹ Se encontraron ' + r.data.length + ' cuentas. Mostrando la primera.';
+          } else {
+            err.textContent = '✗ No se encontraron cuentas con ese titular';
+          }
+        }
+      } catch(e) { err.textContent = '✗ Error: ' + e.message; }
+    }
+
+    function mostrar(c) {
+      document.getElementById('rNumero').textContent = c.numeroCuenta;
+      document.getElementById('rTitular').textContent = c.titular;
+      document.getElementById('rSaldo').textContent = '$' + Number(c.saldo).toLocaleString('es-CO');
+      document.getElementById('rTasa').textContent = c.tasaInteres ? (c.tasaInteres * 100).toFixed(2) + '%' : '-';
+      document.getElementById('rEstado').textContent = c.estado;
+      document.getElementById('rFecha').textContent = c.fechaApertura ? c.fechaApertura.substring(0, 10) : '-';
+      document.getElementById('card').style.display = 'block';
+    }
+
+    document.getElementById('valor').addEventListener('keydown', e => { if (e.key === 'Enter') buscar(); });
+  </script>
+</body>
+</html>

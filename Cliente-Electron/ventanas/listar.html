@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Listar Cuentas</title>
+  <style>
+    body { font-family: Arial; background: #F4F6FA; padding: 20px; }
+    h2 { color: #1F4E79; margin-bottom: 10px; }
+    .filtros { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+    input, select { padding: 6px; border: 1px solid #ccc; border-radius: 3px; }
+    button { background: #1F4E79; color: white; padding: 7px 14px; border: none; cursor: pointer; border-radius: 3px; }
+    button:hover { background: #2E6BAA; }
+    button.sec { background: #666; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+    th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid #ddd; }
+    th { background: #1F4E79; color: white; }
+    tr:hover { background: #EBF2FF; }
+    #notif { font-size: 11px; color: #1B8A5A; margin-top: 5px; min-height: 16px; }
+    .inactivo { color: #999; }
+  </style>
+</head>
+<body>
+  <h2>Listar Cuentas de Ahorros</h2>
+
+  <div class="filtros">
+    <input type="text" id="filtro" placeholder="Filtrar por titular" style="width:160px">
+    <select id="estado">
+      <option value="Todos">Todos los estados</option>
+      <option value="Activo">Activo</option>
+      <option value="Inactivo">Inactivo</option>
+    </select>
+    <button onclick="filtrar()">Filtrar</button>
+    <button class="sec" onclick="listar()">Todas</button>
+  </div>
+
+  <div id="notif"></div>
+
+  <table>
+    <thead>
+      <tr><th>N° Cuenta</th><th>Titular</th><th>Saldo</th><th>Tasa %</th><th>Estado</th><th>Apertura</th></tr>
+    </thead>
+    <tbody id="tabla"></tbody>
+  </table>
+
+  <script>
+    // ============== OBSERVER PATTERN ==============
+    // La ventana escucha eventos SSE del servidor (vía main.js → IPC)
+    // Cada vez que el servidor notifica un cambio, la tabla se actualiza automáticamente
+    window.api.onActualizacion((evt) => {
+      mostrarNotif('Actualización recibida del servidor: ' + evt.evento);
+      listar();
+    });
+
+    function mostrarNotif(msg) {
+      const d = document.getElementById('notif');
+      d.textContent = '● ' + msg;
+      setTimeout(() => { d.textContent = ''; }, 4000);
+    }
+
+    async function listar() {
+      try {
+        const r = await window.api.listarCuentas();
+        dibujar(r.data || []);
+      } catch(e) { alert('Error: ' + e.message); }
+    }
+
+    async function filtrar() {
+      const t = document.getElementById('filtro').value.trim();
+      const es = document.getElementById('estado').value;
+      try {
+        const r = await window.api.filtrarCuentas(t, es);
+        dibujar(r.data || []);
+      } catch(e) { alert('Error: ' + e.message); }
+    }
+
+    function dibujar(lista) {
+      const tbody = document.getElementById('tabla');
+      if (!lista || !lista.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999">Sin resultados</td></tr>';
+        return;
+      }
+      tbody.innerHTML = lista.map(c => {
+        const cls = c.estado === 'Inactivo' ? ' class="inactivo"' : '';
+        const fecha = c.fechaApertura ? c.fechaApertura.substring(0, 10) : '-';
+        const tasa = c.tasaInteres ? (c.tasaInteres * 100).toFixed(2) + '%' : '-';
+        return `<tr${cls}>
+          <td>${c.numeroCuenta}</td>
+          <td>${c.titular}</td>
+          <td>$${Number(c.saldo).toLocaleString('es-CO')}</td>
+          <td>${tasa}</td>
+          <td>${c.estado}</td>
+          <td>${fecha}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    listar();
+  </script>
+</body>
+</html>

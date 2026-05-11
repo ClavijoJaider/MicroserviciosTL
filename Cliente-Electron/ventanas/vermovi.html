@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Historial de Movimientos</title>
+  <style>
+    body { font-family: Arial; background: #F4F6FA; padding: 20px; }
+    h2 { color: #1F4E79; margin-bottom: 15px; }
+    label { display: block; margin: 8px 0 3px; font-weight: bold; font-size: 13px; }
+    input { padding: 7px; border: 1px solid #ccc; border-radius: 3px; }
+    .fila { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+    button { background: #1F4E79; color: white; padding: 7px 14px; border: none; cursor: pointer; border-radius: 3px; }
+    button:hover { background: #2E6BAA; }
+    button.sec { background: #666; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+    th, td { padding: 7px 10px; border-bottom: 1px solid #ddd; text-align: left; }
+    th { background: #1F4E79; color: white; }
+    tr:hover { background: #EBF2FF; }
+    .credito { color: #1B8A5A; font-weight: bold; }
+    .debito  { color: #C9102F; font-weight: bold; }
+    #notif { font-size: 11px; color: #1B8A5A; min-height: 16px; margin-bottom: 4px; }
+    #resumen { font-size: 12px; color: #555; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <h2>Historial de Movimientos</h2>
+
+  <div class="fila">
+    <input type="number" id="numero" placeholder="N° de cuenta (vacío = todos)">
+    <button onclick="cargar()">Ver</button>
+    <button class="sec" onclick="cargarTodos()">Todos</button>
+  </div>
+
+  <div id="notif"></div>
+
+  <table>
+    <thead>
+      <tr><th>ID</th><th>Fecha</th><th>Monto</th><th>Tipo</th><th>Cuenta</th></tr>
+    </thead>
+    <tbody id="tabla"></tbody>
+  </table>
+  <p id="resumen"></p>
+
+  <script>
+    let numeroCuentaActual = null;
+
+    async function cargar() {
+      const n = document.getElementById('numero').value.trim();
+      if (!n) { cargarTodos(); return; }
+      const num = parseInt(n);
+      if (isNaN(num)) { alert('Ingrese un número de cuenta válido'); return; }
+      numeroCuentaActual = num;
+      try {
+        const r = await window.api.listarMovimientos(num);
+        dibujar(r.data || [], 'Cuenta N° ' + num);
+      } catch(e) { alert('Error: ' + e.message); }
+    }
+
+    async function cargarTodos() {
+      numeroCuentaActual = null;
+      document.getElementById('numero').value = '';
+      try {
+        const r = await window.api.listarTodosMovimientos();
+        dibujar(r.data || [], 'Todos los movimientos');
+      } catch(e) { alert('Error: ' + e.message); }
+    }
+
+    function dibujar(lista, titulo) {
+      const tbody = document.getElementById('tabla');
+      const resumen = document.getElementById('resumen');
+
+      if (!lista || lista.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999">Sin movimientos</td></tr>';
+        resumen.textContent = '';
+        return;
+      }
+
+      tbody.innerHTML = lista.map(m => {
+        const cls = m.tipo === 'CREDITO' ? 'credito' : 'debito';
+        const simbolo = m.tipo === 'CREDITO' ? '+' : '-';
+        const fecha = m.fechaMovimiento ? new Date(m.fechaMovimiento).toLocaleString('es-CO') : '-';
+        return `<tr>
+          <td>${m.id}</td>
+          <td>${fecha}</td>
+          <td class="${cls}">${simbolo}$${Number(m.monto).toLocaleString('es-CO')}</td>
+          <td class="${cls}">${m.tipo}</td>
+          <td>${m.numeroCuenta}</td>
+        </tr>`;
+      }).join('');
+
+      const totalCreditos = lista.filter(m => m.tipo === 'CREDITO').reduce((s, m) => s + m.monto, 0);
+      const totalDebitos  = lista.filter(m => m.tipo === 'DEBITO').reduce((s, m) => s + m.monto, 0);
+      resumen.innerHTML = `${titulo} — Total: <strong>${lista.length}</strong> movimiento(s) &nbsp;|&nbsp; Créditos: <span class="credito">+$${totalCreditos.toLocaleString('es-CO')}</span> &nbsp;|&nbsp; Débitos: <span class="debito">-$${totalDebitos.toLocaleString('es-CO')}</span>`;
+    }
+
+    // ============== OBSERVER PATTERN ==============
+    // Recibe eventos SSE de AMBOS microservicios y actualiza la tabla automáticamente.
+    // MOVIMIENTO_CREADO      → MS-Movimiento (8081) — nuevo movimiento creado
+    // MOVIMIENTO_ACTUALIZADO → MS-Movimiento (8081) — movimiento editado
+    // MOVIMIENTO_ELIMINADO   → MS-Movimiento (8081) — movimiento eliminado
+    window.api.onActualizacion((evt) => {
+      const esCreado = evt.evento === 'MOVIMIENTO_CREADO' || evt.evento === 'MOVIMIENTO_AGREGADO';
+      const esModificado = evt.evento === 'MOVIMIENTO_ACTUALIZADO' || evt.evento === 'MOVIMIENTO_ELIMINADO';
+
+      if (esCreado) {
+        mostrarNotif('Nuevo movimiento registrado en cuenta N° ' + (evt.datos && evt.datos.numeroCuenta));
+        if (numeroCuentaActual === null) {
+          cargarTodos();
+        } else if (evt.datos && evt.datos.numeroCuenta === numeroCuentaActual) {
+          cargar();
+        }
+      } else if (esModificado) {
+        mostrarNotif('Movimiento actualizado — recargando...');
+        if (numeroCuentaActual === null) cargarTodos(); else cargar();
+      }
+    });
+
+    function mostrarNotif(msg) {
+      const d = document.getElementById('notif');
+      d.textContent = '● ' + msg;
+      setTimeout(() => { d.textContent = ''; }, 4000);
+    }
+
+    // Cargar todos al abrir
+    cargarTodos();
+  </script>
+</body>
+</html>

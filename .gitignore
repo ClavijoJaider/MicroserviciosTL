@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+
+# IDE - IntelliJ
+.idea/
+*.iml
+*.iws
+
+# Maven build output
+target/
+
+# .NET build output
+bin/
+obj/
+.vs/
+*.user
+packages/
+
+# Electron
+Cliente-Electron/node_modules/
+Cliente-Electron/dist/
+
+# H2 database files (generadas en ejecución)
+/tmp/waybank*
+*.db
+*.mv.db
+*.trace.db
+
+# Logs
+*.log
+electron.log

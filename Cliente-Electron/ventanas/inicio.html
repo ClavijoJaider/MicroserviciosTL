@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>WayBank</title>
+  <style>
+    body { font-family: Arial; background: #1F4E79; margin: 0; padding: 30px 20px; text-align: center; color: white; }
+    h1 { font-size: 26px; margin-bottom: 6px; letter-spacing: 1px; }
+    .sub { color: #A8C8F0; font-size: 13px; margin-bottom: 20px; }
+    .tip { font-size: 12px; color: #7AA8D0; }
+    #estado { font-size: 11px; color: #A8C8F0; margin-top: 14px; }
+    .punto { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #aaa; margin-right: 5px; vertical-align: middle; }
+    .punto.ok { background: #4CAF50; }
+  </style>
+</head>
+<body>
+  <h1>🏦 WayBank</h1>
+  <p class="sub">Sistema de Gestión de Cuentas de Ahorros</p>
+  <p class="tip">Seleccione una opción del menú superior</p>
+  <p id="estado"><span class="punto" id="punto"></span><span id="estadoTexto">Verificando conexión...</span></p>
+
+  <script>
+    async function verificar() {
+      try {
+        const r = await window.api.healthcheck();
+        document.getElementById('punto').className = 'punto ok';
+        document.getElementById('estadoTexto').textContent = 'Servidor conectado — Observer SSE activo';
+      } catch(e) {
+        document.getElementById('estadoTexto').textContent = 'Servidor no disponible';
+      }
+    }
+    verificar();
+
+    window.api.onActualizacion((evt) => {
+      document.getElementById('punto').className = 'punto ok';
+      document.getElementById('estadoTexto').textContent = 'Evento recibido: ' + evt.evento;
+      setTimeout(verificar, 3000);
+    });
+  </script>
+</body>
+</html>
